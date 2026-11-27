@@ -22,6 +22,10 @@ namespace LF2.IDE
 
 		public static System.Drawing.Icon GetFileIcon(string name, IconSize size, bool linkOverlay)
 		{
+			// Shell32 file icons exist only on Windows; Mono gets one generic icon.
+			if (!Platform.IsWindows)
+				return (System.Drawing.Icon)System.Drawing.SystemIcons.WinLogo.Clone();
+
 			Shell32.SHFILEINFO shfi = new Shell32.SHFILEINFO();
 			uint flags = Shell32.SHGFI_ICON | Shell32.SHGFI_USEFILEATTRIBUTES;
 

@@ -781,15 +781,17 @@ namespace LF2.IDE
 		public List<SpriteSheet> ParseFiles(string lfDir, string dat)
 		{
 			List<SpriteSheet> fileList = new List<SpriteSheet>(8);
-			int begin = dat.IndexOf("<bmp_begin>"), end = dat.IndexOf("<bmp_end>", begin + 11);
-			if (begin < 0 || end < 0) return null;
-			string script = dat.Substring(begin + 11, end - begin);
+			int begin = dat.IndexOf("<bmp_begin>");
+			if (begin < 0) return null;
+			int end = dat.IndexOf("<bmp_end>", begin + 11);
+			if (end < 0) return null;
+			string script = dat.Substring(begin + 11, end - begin - 11);
 			MatchCollection matches = Regex.Matches(script, SpriteSheet.regexPattern);
 			if (matches.Count < 1) return null;
 			for (int i = 0; i < matches.Count; i++)
 			{
 				if (backgroundWorker_CreateOpointCache.CancellationPending) return fileList;
-				string path = lfDir + "\\" + matches[i].Groups[3].Value.Trim();
+				string path = Platform.ResolvePath(lfDir, matches[i].Groups[3].Value.Trim());
 				Bitmap img = HelperTools.GetClonedBitmap(path);
 				img.Tag = Path.GetFileName(path);
 				int si = int.Parse(matches[i].Groups[1].Value),
@@ -857,8 +859,8 @@ namespace LF2.IDE
 		{
 			List<Obj> opointCache = new List<Obj>(128);
 			string lfDir;
-			string data_txt = (lfDir = Path.GetDirectoryName(Settings.Current.lfPath)) + "\\data\\data.txt";
-			string data = File.ReadAllText(data_txt, Encoding.Default);
+			string data_txt = Platform.ResolvePath(lfDir = Path.GetDirectoryName(Settings.Current.lfPath), "data/data.txt");
+			string data = File.ReadAllText(data_txt, Platform.TextEncoding);
 			int st = data.IndexOf("<object>"), end = data.IndexOf("<object_end>", st + 8);
 			if (st < 0 || end < 0) return;
 			data = data.Substring(st + 8, end - st);
@@ -881,7 +883,7 @@ namespace LF2.IDE
 
 				backgroundWorker_CreateOpointCache.ReportProgress((int)(i / (float)(matches.Count) * 100), file);
 
-				string dat = LF2DataUtils.Decrypt(lfDir + "\\" + file);
+				string dat = LF2DataUtils.Decrypt(Platform.ResolvePath(lfDir, file));
 				List<SpriteSheet> fileList = ParseFiles(lfDir, dat);
 				if (fileList == null) continue;
 				Dictionary<int, Bitmap> bmpList = ParseBmpList(fileList);
@@ -1186,20 +1188,22 @@ namespace LF2.IDE
 		// God save us from ever needing to write this kind of creepy code
 		public bool SyncToEditor(DocumentForm theDoc, bool auto = false)
 		{
-			if (theDoc == null)
+			if (theDoc == null || theDoc.DocumentType != DocumentType.ObjectData || !Settings.Current.syncDesign || !Monitor.TryEnter(theDoc.syncLock))
 				return false;
 			try
 			{
-				if (theDoc.DocumentType != DocumentType.ObjectData || !Settings.Current.syncDesign || !Monitor.TryEnter(theDoc.syncLock))
+				int caret = theDoc.Editor.PlaceToPosition(theDoc.Editor.Selection.Start);
+				int line = theDoc.Editor.Selection.Start.iLine;
+				int lineEnd = theDoc.Editor.PlaceToPosition(new FastColoredTextBoxNS.Place(theDoc.Editor.Lines[line].Length, line));
+				if (theDoc.Editor.Text.Length == 0)
 					return false;
-				Monitor.Enter(theDoc.syncLock);
-				int fs = theDoc.Scintilla.Text.LastIndexOf("<frame>", theDoc.Scintilla.Lines.Current.EndPosition);
+				int fs = theDoc.Editor.Text.LastIndexOf("<frame>", Math.Min(lineEnd, theDoc.Editor.Text.Length - 1));
 				if (fs < 0)
 					return false;
-				int fe = theDoc.Scintilla.Text.IndexOf("<frame_end>", fs + 7);
-				if (fe < 0 || fe + 11 < theDoc.Scintilla.CurrentPos)
+				int fe = theDoc.Editor.Text.IndexOf("<frame_end>", fs + 7);
+				if (fe < 0 || fe + 11 < caret)
 					return false;
-				var fr = theDoc.Scintilla.GetRange(fs, fe + 11);
+				var fr = new FastColoredTextBoxNS.Range(theDoc.Editor, theDoc.Editor.PositionToPlace(fs), theDoc.Editor.PositionToPlace(fe + 11));
 				{
 					var frame = LF2DataUtils.ReadFrame(fr.Text);
 					frame.pic = (int)numericUpDown_ImageIndex.Value;
@@ -1314,7 +1318,14 @@ namespace LF2.IDE
 						if (int.TryParse(centery.Text, out i))
 							frame.centery = i;
 					}
-					fr.Text = frame.ToString();
+					int oldStart = theDoc.Editor.PlaceToPosition(theDoc.Editor.Selection.Start);
+					int oldEnd = theDoc.Editor.PlaceToPosition(theDoc.Editor.Selection.End);
+					theDoc.justEdited = true;
+					theDoc.Editor.Selection.Start = fr.Start;
+					theDoc.Editor.Selection.End = fr.End;
+					theDoc.Editor.InsertText(frame.ToString());
+					theDoc.Editor.Selection.Start = theDoc.Editor.PositionToPlace(Math.Min(oldStart, theDoc.Editor.TextLength));
+					theDoc.Editor.Selection.End = theDoc.Editor.PositionToPlace(Math.Min(oldEnd, theDoc.Editor.TextLength));
 				}
 				return true;
 			}

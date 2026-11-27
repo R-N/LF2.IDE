@@ -38,7 +38,7 @@ namespace LF2.IDE
 		void Add(object sender, EventArgs e)
 		{
 			if (mainForm.ActiveDocument != null)
-				mainForm.ActiveDocument.Scintilla.Selection.Text = richTextBox.Text;
+				mainForm.ActiveDocument.Editor.InsertText(richTextBox.Text);
 		}
 
 		void ImageIndexChanged(object sender, EventArgs e)

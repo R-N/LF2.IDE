@@ -68,7 +68,7 @@
     <UseVSHostingProcess>false</UseVSHostingProcess>
     <Prefer32Bit>true</Prefer32Bit>
     <PlatformTarget>x86</PlatformTarget>
-    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <CheckForOverflowUnderflow>True</CheckForOverflowUnderflow>
@@ -141,27 +141,23 @@
   <ItemGroup>
     <Reference Include="AxInterop.WMPLib, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\Assemblies\WMPLib\signed\AxInterop.WMPLib.dll</HintPath>
+      <HintPath>..\assemblies\WMPLib\signed\AxInterop.WMPLib.dll</HintPath>
     </Reference>
     <Reference Include="CSScriptLibrary">
-      <HintPath>..\Assemblies\CSScriptLibrary\CSScriptLibrary.dll</HintPath>
+      <HintPath>..\assemblies\CSScriptLibrary\CSScriptLibrary.dll</HintPath>
     </Reference>
     <Reference Include="Interop.WMPLib, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
       <EmbedInteropTypes>False</EmbedInteropTypes>
-      <HintPath>..\Assemblies\WMPLib\signed\Interop.WMPLib.dll</HintPath>
+      <HintPath>..\assemblies\WMPLib\signed\Interop.WMPLib.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.VisualBasic" />
-    <Reference Include="ScintillaNET, Version=2.5.2.0, Culture=neutral, PublicKeyToken=948d6c9751444115, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\Assemblies\ScintillaNET v2.5.2\ScintillaNET.dll</HintPath>
-    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
     <Reference Include="WeifenLuo.WinFormsUI.Docking">
-      <HintPath>..\Assemblies\WeifenLuo.WinFormsUI.Docking\WeifenLuo.WinFormsUI.Docking.dll</HintPath>
+      <HintPath>..\assemblies\WeifenLuo.WinFormsUI.Docking\WeifenLuo.WinFormsUI.Docking.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>
@@ -184,6 +180,9 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="IDL.cs" />
+    <Compile Include="Platform.cs" />
+    <Compile Include="Features\**\*.cs" />
+    <Compile Include="Idl\**\*.cs" />
     <None Include="app.manifest" />
     <None Include="DataUtils\UnsafeLF2DataAlgorithm.cs">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
@@ -390,14 +389,6 @@
     </Compile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\Assemblies\ScintillaNET v2.5.2\SciLexer.dll">
-      <Link>SciLexer.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Include="..\Assemblies\ScintillaNET v2.5.2\SciLexer64.dll">
-      <Link>SciLexer64.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
     <Content Include="Main.ico" />
     <Content Include="Main_.ico" />
     <None Include="docking.xml">
@@ -551,12 +542,12 @@
   </ItemGroup>
   <ItemGroup />
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.Targets" />
-  <PropertyGroup>
-    <PostBuildEvent>del "$(TargetDir)CSScriptLibrary.xml"
-del "$(TargetDir)ScintillaNET.xml"
-echo. &gt; "$(TargetDir)IDL.dll"
-xcopy /Y "$(SolutionDir)Assemblies\IDL\IDL.dll" "$(TargetDir)IDL.dll"</PostBuildEvent>
-  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FastColoredTextBox\FastColoredTextBox.csproj">
+      <Project>{6DD14A85-CCFC-4774-BD26-0F5772512319}</Project>
+      <Name>FastColoredTextBox</Name>
+    </ProjectReference>
+  </ItemGroup>
   <PropertyGroup>
     <PreBuildEvent>
     </PreBuildEvent>

@@ -71,7 +71,7 @@ namespace LF2.IDE
 		public class FileSystemNode
 		{
 			public FileSystemInfo fileSystem;
-			public List<FileSystemNode> nodes;
+			public List<FileSystemNode> nodes = new List<FileSystemNode>();
 
 			public FileSystemNode(FileSystemInfo fileSystem, IEnumerable<FileSystemNode> nodes = null)
 			{
@@ -215,7 +215,7 @@ namespace LF2.IDE
 				return;
 			}
 
-			if (!File.Exists(Settings.Current.lfPath))
+			if (!Directory.Exists(DestinationFolder))
 			{
 				FormSettings fs = new FormSettings(forceCorrectLfPath : true);
 				if (fs.ShowDialog(mainForm) != DialogResult.OK)
@@ -326,14 +326,9 @@ namespace LF2.IDE
 								mainForm.Open(nodeFileInfo.FullName, true);
 								break;
 							case ".avi":
-								mainForm.media.Show();
-								mainForm.media.axWindowsMediaPlayer.URL = nodeFileInfo.FullName;
-								mainForm.media.axWindowsMediaPlayer.Ctlcontrols.play();
-								break;
 							case ".wav":
 							case ".wma":
-								mainForm.media.axWindowsMediaPlayer.URL = nodeFileInfo.FullName;
-								mainForm.media.axWindowsMediaPlayer.Ctlcontrols.play();
+								PlayMedia(nodeFileInfo.FullName);
 								break;
 							case ".bmp":
 							case ".dib":
@@ -352,18 +347,7 @@ namespace LF2.IDE
 								fp.Show(mainForm);
 								break;
 							default:
-								try
-								{
-									psi = new ProcessStartInfo();
-									psi.FileName = nodeFileInfo.FullName;
-									psi.WorkingDirectory = nodeFileInfo.Directory.FullName;
-									Process.Start(psi);
-								}
-								catch (Exception ex)
-								{
-									mainForm.formEventLog.Error(ex, "ERROR");
-									this.Show();
-								}
+								RunFile(nodeFileInfo);
 								break;
 						}
 					}
@@ -402,7 +386,7 @@ namespace LF2.IDE
 				{
 					FileInfo fi = (FileInfo)node.Tag;
 					fi.Refresh();
-					string fns = fi.Directory.FullName + "\\" + e.Label;
+					string fns = Path.Combine(fi.Directory.FullName, e.Label);
 					if (fi.Exists)
 					{
 						if (!File.Exists(fns))
@@ -428,7 +412,7 @@ namespace LF2.IDE
 				{
 					DirectoryInfo di = (DirectoryInfo)node.Tag;
 					di.Refresh();
-					string fms = di.Parent.FullName + "\\" + e.Label;
+					string fms = Path.Combine(di.Parent.FullName, e.Label);
 					if (di.Exists)
 					{
 						if(!Directory.Exists(fms))
@@ -512,14 +496,9 @@ namespace LF2.IDE
 								mainForm.Open(nodeFileInfo.FullName, true);
 								break;
 							case ".avi":
-								mainForm.media.Show();
-								mainForm.media.axWindowsMediaPlayer.URL = nodeFileInfo.FullName;
-								mainForm.media.axWindowsMediaPlayer.Ctlcontrols.play();
-								break;
 							case ".wav":
 							case ".wma":
-								mainForm.media.axWindowsMediaPlayer.URL = nodeFileInfo.FullName;
-								mainForm.media.axWindowsMediaPlayer.Ctlcontrols.play();
+								PlayMedia(nodeFileInfo.FullName);
 								break;
 							case ".bmp":
 							case ".dib":
@@ -538,18 +517,7 @@ namespace LF2.IDE
 								fp.Show(mainForm);
 								break;
 							default:
-								try
-								{
-									psi = new ProcessStartInfo();
-									psi.FileName = nodeFileInfo.FullName;
-									psi.WorkingDirectory = nodeFileInfo.Directory.FullName;
-									Process.Start(psi);
-								}
-								catch (Exception ex)
-								{
-									mainForm.formEventLog.Error(ex, "ERROR");
-									this.Show();
-								}
+								RunFile(nodeFileInfo);
 								break;
 						}
 					}
@@ -564,16 +532,7 @@ namespace LF2.IDE
 					e.SuppressKeyPress = true;
 					//if (MessageBox.Show("Are you sure to delete '" + nodeFileInfo.Name + "' file?", this.Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
 					{
-						bool cancelled = false;
-						try
-						{
-							FileSystem.DeleteFile(nodeFileInfo.FullName, UIOption.AllDialogs, e.Shift ? RecycleOption.DeletePermanently : RecycleOption.SendToRecycleBin, UICancelOption.ThrowException);
-						}
-						catch (OperationCanceledException)
-						{
-							cancelled = true;
-						}
-						if (!cancelled)
+						if (DeletePath(nodeFileInfo.FullName, e.Shift))
 							newSelected.Remove();
 					}
 				}
@@ -587,16 +546,7 @@ namespace LF2.IDE
 					e.SuppressKeyPress = true;
 					//if (MessageBox.Show("Are you sure to delete '" + nodeDirInfo.Name + "' directory and it's dependencies?", this.Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
 					{
-						bool cancelled = false;
-						try
-						{
-							FileSystem.DeleteDirectory(nodeDirInfo.FullName, UIOption.AllDialogs, e.Shift ? RecycleOption.DeletePermanently : RecycleOption.SendToRecycleBin, UICancelOption.ThrowException);
-						}
-						catch (OperationCanceledException)
-						{
-							cancelled = true;
-						}
-						if (!cancelled)
+						if (DeletePath(nodeDirInfo.FullName, e.Shift))
 							newSelected.Remove();
 					}
 				}
@@ -628,18 +578,7 @@ namespace LF2.IDE
 			if (treeView.SelectedNode.Tag is FileInfo)
 			{
 				FileInfo fi = (FileInfo)treeView.SelectedNode.Tag;
-				try
-				{
-					ProcessStartInfo psi = new ProcessStartInfo();
-					psi.FileName = fi.FullName;
-					psi.WorkingDirectory = fi.Directory.FullName;
-					Process.Start(psi);
-				}
-				catch (Exception ex)
-				{
-					mainForm.formEventLog.Error(ex, "ERROR");
-					this.Show();
-				}
+				RunFile(fi);
 			}
 		}
 
@@ -650,16 +589,7 @@ namespace LF2.IDE
 				FileInfo fi = (FileInfo)treeView.SelectedNode.Tag;
 				//if (MessageBox.Show("Are you sure to delete '" + fi.Name + "' file?", this.Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
 				{
-					bool cancelled = false;
-					try
-					{
-						FileSystem.DeleteFile(fi.FullName, UIOption.AllDialogs, RecycleOption.SendToRecycleBin, UICancelOption.ThrowException);
-					}
-					catch (OperationCanceledException)
-					{
-						cancelled = true;
-					}
-					if (!cancelled)
+					if (DeletePath(fi.FullName, false))
 						treeView.SelectedNode.Remove();
 				}
 			}
@@ -699,7 +629,7 @@ namespace LF2.IDE
 				{
 					if (file.Name == "New File" + (j == 0 ? "" : " " + j)) j++;
 				}
-				string newFile = "New File" + (j == 0 ? "" : " " + j), path = di.FullName + "\\" + newFile;
+				string newFile = "New File" + (j == 0 ? "" : " " + j), path = Path.Combine(di.FullName, newFile);
 				TreeNode node = new TreeNode(newFile, 2, 2);
 				if (File.Exists(path))
 				{
@@ -730,7 +660,7 @@ namespace LF2.IDE
 				{
 					if (dia[i].Name == "New Directory" + (j == 0 ? "" : " " + j)) j++;
 				}
-				string dir = "New Directory" + (j == 0 ? "" : " " + j), path = di.FullName + "\\" + dir;
+				string dir = "New Directory" + (j == 0 ? "" : " " + j), path = Path.Combine(di.FullName, dir);
 				TreeNode node = new TreeNode(dir, 0, 1);
 				if (Directory.Exists(path))
 				{
@@ -760,16 +690,7 @@ namespace LF2.IDE
 				DirectoryInfo di = (DirectoryInfo)treeView.SelectedNode.Tag;
 				//if (MessageBox.Show("Are you sure to delete '" + di.Name + "' directory and it's dependencies?", this.Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
 				{
-					bool cancelled = false;
-					try
-					{
-						FileSystem.DeleteDirectory(di.FullName, UIOption.AllDialogs, RecycleOption.SendToRecycleBin, UICancelOption.ThrowException);
-					}
-					catch (OperationCanceledException)
-					{
-						cancelled = true;
-					}
-					if(!cancelled)
+					if (DeletePath(di.FullName, false))
 						treeView.SelectedNode.Remove();
 				}
 			}
@@ -848,18 +769,7 @@ namespace LF2.IDE
 					nodeFileInfo.Refresh();
 					if (nodeFileInfo.Exists)
 					{
-						try
-						{
-							ProcessStartInfo psi = new ProcessStartInfo();
-							psi.FileName = nodeFileInfo.FullName;
-							psi.WorkingDirectory = nodeFileInfo.Directory.FullName;
-							Process.Start(psi);
-						}
-						catch (Exception ex)
-						{
-							mainForm.formEventLog.Error(ex, "ERROR");
-							this.Show();
-						}
+						RunFile(nodeFileInfo);
 					}
 					else
 					{
@@ -883,18 +793,7 @@ namespace LF2.IDE
 					nodeFileInfo.Refresh();
 					if (nodeFileInfo.Exists)
 					{
-						try
-						{
-							ProcessStartInfo psi = new ProcessStartInfo();
-							psi.FileName = nodeFileInfo.FullName;
-							psi.WorkingDirectory = nodeFileInfo.Directory.FullName;
-							Process.Start(psi);
-						}
-						catch (Exception ex)
-						{
-							mainForm.formEventLog.Error(ex, "ERROR");
-							this.Show();
-						}
+						RunFile(nodeFileInfo);
 					}
 					else
 					{
@@ -1180,16 +1079,14 @@ namespace LF2.IDE
 		{
 			TreeNode node = treeView.SelectedNode;
 			DirectoryInfo di = (DirectoryInfo)node.Tag;
-			ProcessStartInfo psi = new ProcessStartInfo(di.FullName);
-			Process.Start(psi);
+			Platform.Open(di.FullName);
 		}
 
 		void OpenFileInExplorerToolStripMenuItem_Click(object sender, EventArgs e)
 		{
 			TreeNode node = treeView.SelectedNode;
 			FileInfo di = (FileInfo)node.Tag;
-			ProcessStartInfo psi = new ProcessStartInfo("explorer", "/select, " + di.FullName);
-			Process.Start(psi);
+			Platform.Reveal(di.FullName);
 		}
 
 		void EditWithoutDecryptionToolStripMenuItem_Click(object sender, EventArgs e)
@@ -1198,11 +1095,9 @@ namespace LF2.IDE
 			{
 				FileInfo fi = (FileInfo)treeView.SelectedNode.Tag;
 				DocumentForm doc = new DocumentForm(mainForm);
-				doc.Scintilla.AppendText(File.ReadAllText(fi.FullName, Encoding.Default));
-				doc.Scintilla.UndoRedo.EmptyUndoBuffer();
-				doc.Scintilla.Modified = false;
+				doc.SetTextFromFile(File.ReadAllText(fi.FullName, Platform.TextEncoding));
 				doc.TabText = Path.GetFileNameWithoutExtension(fi.Name);
-				doc.FilePath = fi.Directory.FullName + "\\" + Path.GetFileNameWithoutExtension(fi.Name);
+				doc.FilePath = Path.Combine(fi.Directory.FullName, Path.GetFileNameWithoutExtension(fi.Name));
 				doc.Show(mainForm.DockPanel);
 			}
 		}
@@ -1218,8 +1113,7 @@ namespace LF2.IDE
 				nodeFileInfo.Refresh();
 				if (nodeFileInfo.Exists)
 				{
-					mainForm.media.axWindowsMediaPlayer.URL = nodeFileInfo.FullName;
-					mainForm.media.axWindowsMediaPlayer.Ctlcontrols.play();
+					PlayMedia(nodeFileInfo.FullName);
 				}
 				else
 				{
@@ -1239,9 +1133,7 @@ namespace LF2.IDE
 				nodeFileInfo.Refresh();
 				if (nodeFileInfo.Exists)
 				{
-					mainForm.media.Show();
-					mainForm.media.axWindowsMediaPlayer.URL = nodeFileInfo.FullName;
-					mainForm.media.axWindowsMediaPlayer.Ctlcontrols.play();
+					PlayMedia(nodeFileInfo.FullName);
 				}
 				else
 				{
@@ -1398,11 +1290,11 @@ namespace LF2.IDE
 						{
 							if (File.Exists(fso))
 							{
-								FileSystem.CopyFile(fso, dir.FullName + "\\" + Path.GetFileName(fso), UIOption.AllDialogs, UICancelOption.ThrowException); //TODO: fix unhandled exception
+								CopyInto(fso, dir.FullName);
 							}
 							else if (Directory.Exists(fso) && !(string.Equals(fso, dir.FullName.Substring(0, fso.Length), StringComparison.InvariantCultureIgnoreCase)))
 							{
-								FileSystem.CopyDirectory(fso, dir.FullName + "\\" + Path.GetFileName(fso), UIOption.AllDialogs, UICancelOption.ThrowException);
+								CopyInto(fso, dir.FullName);
 							}
 						}
 						treeView.SelectedNode.Nodes.Clear();
@@ -1419,6 +1311,140 @@ namespace LF2.IDE
 				}
 				catch (OperationCanceledException) { }
 			}
+		}
+
+		void PlayMedia(string path)
+		{
+			if (Platform.IsWindows)
+				PlayInMediaPanel(path);
+			else
+				Platform.Open(path);
+		}
+
+		// Separate method so the Windows Media Player ActiveX is never touched on Mono.
+		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+		void PlayInMediaPanel(string path)
+		{
+			mainForm.media.Show();
+			mainForm.media.axWindowsMediaPlayer.URL = path;
+			mainForm.media.axWindowsMediaPlayer.Ctlcontrols.play();
+		}
+
+		void RunFile(FileInfo fi)
+		{
+			try
+			{
+				if (string.Equals(fi.Extension, ".exe", StringComparison.OrdinalIgnoreCase))
+					Process.Start(Platform.ExeStartInfo(fi.FullName));
+				else if (Platform.IsWindows)
+					Process.Start(new ProcessStartInfo(fi.FullName) { WorkingDirectory = fi.Directory.FullName });
+				else
+					Platform.Open(fi.FullName);
+			}
+			catch (Exception ex)
+			{
+				mainForm.formEventLog.Error(ex, "ERROR");
+				this.Show();
+			}
+		}
+
+		/// <summary>
+		/// Deletes a file or directory: Recycle Bin on Windows (permanent when <paramref name="permanent"/>),
+		/// the desktop trash via gio elsewhere. Returns false if the user cancelled.
+		/// </summary>
+		bool DeletePath(string path, bool permanent)
+		{
+			try
+			{
+				if (Platform.IsWindows)
+				{
+					DeleteWindows(path, permanent);
+					return true;
+				}
+				string name = Path.GetFileName(path);
+				if (MessageBox.Show(this, permanent ? "Permanently delete '" + name + "'?" : "Move '" + name + "' to the trash?",
+					Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+					return false;
+				if (!permanent && Trash(path))
+					return true;
+				if (!permanent && MessageBox.Show(this, "Could not move '" + name + "' to the trash. Delete it permanently?",
+					Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+					return false;
+				if (Directory.Exists(path))
+					Directory.Delete(path, true);
+				else
+					File.Delete(path);
+				return true;
+			}
+			catch (OperationCanceledException)
+			{
+				return false;
+			}
+		}
+
+		static bool Trash(string path)
+		{
+			try
+			{
+				using (Process p = Process.Start(new ProcessStartInfo("gio", "trash \"" + path.Replace("\"", "\\\"") + "\"") { UseShellExecute = false, CreateNoWindow = true }))
+				{
+					p.WaitForExit();
+					return p.ExitCode == 0;
+				}
+			}
+			catch (Exception)
+			{
+				return false;
+			}
+		}
+
+		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+		static void DeleteWindows(string path, bool permanent)
+		{
+			RecycleOption recycle = permanent ? RecycleOption.DeletePermanently : RecycleOption.SendToRecycleBin;
+			if (Directory.Exists(path))
+				FileSystem.DeleteDirectory(path, UIOption.AllDialogs, recycle, UICancelOption.ThrowException);
+			else
+				FileSystem.DeleteFile(path, UIOption.AllDialogs, recycle, UICancelOption.ThrowException);
+		}
+
+		void CopyInto(string source, string targetDir)
+		{
+			string dest = Path.Combine(targetDir, Path.GetFileName(source));
+			if (Platform.IsWindows)
+			{
+				CopyWindows(source, dest);
+				return;
+			}
+			try
+			{
+				CopyRecursive(source, dest);
+			}
+			catch (IOException ex)
+			{
+				mainForm.formEventLog.Error(ex, "Copy Error");
+			}
+		}
+
+		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+		static void CopyWindows(string source, string dest)
+		{
+			if (File.Exists(source))
+				FileSystem.CopyFile(source, dest, UIOption.AllDialogs, UICancelOption.ThrowException);
+			else
+				FileSystem.CopyDirectory(source, dest, UIOption.AllDialogs, UICancelOption.ThrowException);
+		}
+
+		static void CopyRecursive(string source, string dest)
+		{
+			if (File.Exists(source))
+			{
+				File.Copy(source, dest, false);
+				return;
+			}
+			Directory.CreateDirectory(dest);
+			foreach (string entry in Directory.EnumerateFileSystemEntries(source))
+				CopyRecursive(entry, Path.Combine(dest, Path.GetFileName(entry)));
 		}
 	}
 }

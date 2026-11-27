@@ -32,12 +32,11 @@ namespace LF2.IDE
 		{
 			Action act = (Action)(() =>
 				{
-					int caret = scintilla.Lines.Count - 1;
+					int caret = scintilla.LinesCount - 1;
 					Log(logTitle, false);
-					scintilla.AppendText(scintilla.EndOfLine.EolString + logMessage);
+					scintilla.AppendText(Environment.NewLine + logMessage);
 					StepCaret(stepCaret);
 					StepCaret(caret, stepCaret);
-					scintilla.Lines.Current.Next.AddMarker(scintilla.Markers.Folder);
 				});
 
 			try
@@ -55,7 +54,7 @@ namespace LF2.IDE
 			Action<string> act = (Action<string>)((string msg) =>
 				{
 					if (!string.IsNullOrEmpty(scintilla.Text))
-						scintilla.AppendText(scintilla.EndOfLine.EolString);
+						scintilla.AppendText(Environment.NewLine);
 					scintilla.AppendText(msg);
 					StepCaret(stepCaret);
 				});
@@ -72,15 +71,14 @@ namespace LF2.IDE
 
 		private void StepCaret(bool condition = true)
 		{
-			StepCaret(scintilla.Lines.Count - 1, condition);
+			StepCaret(scintilla.LinesCount - 1, condition);
 		}
 
 		private void StepCaret(int caretLine, bool condition = true)
 		{
 			if (condition)
 			{
-				scintilla.Caret.LineNumber = caretLine;
-				scintilla.Caret.EnsureVisible();
+				scintilla.Navigate(caretLine);
 				scintilla.Refresh();
 			}
 		}
@@ -93,34 +91,13 @@ namespace LF2.IDE
 
 		void scintilla_LinkClicked(object sender, LinkClickedEventArgs e)
 		{
-			Process.Start(e.LinkText);
+			Platform.Open(e.LinkText);
 		}
 
-		void ScintillaZoomChanged(object sender, EventArgs e)
-		{
-			SetMarginAuto();
-		}
-
-		void ScintillaTextChanged(object sender, EventArgs e)
-		{
-			SetMarginAuto();
-		}
-
-		int last_measure_lines = -1;
-
-		public void SetMarginAuto()
-		{
-			int lines = scintilla.Lines.Count;
-			if (lines != last_measure_lines)
-			{
-				last_measure_lines = lines;
-				scintilla.Margins[0].Width = TextRenderer.MeasureText(lines.ToString(), scintilla.Font).Width + scintilla.Zoom * 3;
-			}
-		}
 
 		private void scintilla_MouseDoubleClick(object sender, MouseEventArgs e)
 		{
-			string link = scintilla.Lines.Current.Text.Trim('\r', '\n', ' ', '\t');
+			string link = scintilla.Lines[scintilla.Selection.Start.iLine].Trim();
 			if (link.StartsWith("http://"))
 				scintilla_LinkClicked(scintilla, new LinkClickedEventArgs(link));
 		}
@@ -138,12 +115,13 @@ namespace LF2.IDE
 
 		private void copySelectedToolStripMenuItem_Click(object sender, EventArgs e)
 		{
-			scintilla.Clipboard.Copy(true);
+			scintilla.Copy();
 		}
 
 		private void copyAllToolStripMenuItem_Click(object sender, EventArgs e)
 		{
-			scintilla.Clipboard.Copy(0, scintilla.TextLength);
+			if (scintilla.TextLength > 0)
+				Clipboard.SetText(scintilla.Text);
 		}
 	}
 }

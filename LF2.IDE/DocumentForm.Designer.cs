@@ -13,6 +13,11 @@
 		/// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
 		protected override void Dispose(bool disposing)
 		{
+			if (disposing)
+			{
+				if (autocomplete != null) autocomplete.Dispose();
+				if (syncTimer != null) syncTimer.Dispose();
+			}
 			if (disposing && (components != null))
 			{
 				components.Dispose();
@@ -30,7 +35,7 @@
 		{
 			this.components = new System.ComponentModel.Container();
 			System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(DocumentForm));
-			this.scintilla = new ScintillaNET.Scintilla();
+			this.scintilla = new FastColoredTextBoxNS.FastColoredTextBox();
 			this.saveFileDialog = new System.Windows.Forms.SaveFileDialog();
 			this.statusStrip = new System.Windows.Forms.StatusStrip();
 			this.toolStripStatusLabel1 = new System.Windows.Forms.ToolStripStatusLabel();
@@ -62,63 +67,20 @@
 			// 
 			// scintilla
 			// 
-			this.scintilla.AllowDrop = true;
-			this.scintilla.AutoComplete.ListString = "";
-			this.scintilla.AutoComplete.MaxHeight = 8;
-			this.scintilla.AutoComplete.SingleLineAccept = true;
-			this.scintilla.AutoComplete.StopCharacters = "{TAB}";
-			this.scintilla.BorderStyle = System.Windows.Forms.BorderStyle.None;
-			this.scintilla.Caret.CurrentLineBackgroundColor = System.Drawing.Color.Lavender;
-			this.scintilla.Caret.HighlightCurrentLine = true;
-			this.scintilla.ConfigurationManager.CustomLocation = "data.lang.xml";
-			this.scintilla.ConfigurationManager.Language = "dat";
 			this.scintilla.Dock = System.Windows.Forms.DockStyle.Fill;
-			this.scintilla.Folding.UseCompactFolding = true;
-			this.scintilla.Font = new System.Drawing.Font("Courier New", 9.75F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(162)));
-			this.scintilla.Indentation.BackspaceUnindents = true;
-			this.scintilla.Indentation.TabWidth = 3;
-			this.scintilla.Indentation.UseTabs = false;
-			this.scintilla.Lexing.Lexer = ScintillaNET.Lexer.Null;
-			this.scintilla.Lexing.LexerName = "null";
-			this.scintilla.Lexing.LineCommentPrefix = "";
-			this.scintilla.Lexing.StreamCommentPrefix = "";
-			this.scintilla.Lexing.StreamCommentSufix = "";
-			this.scintilla.LineWrapping.IndentMode = ScintillaNET.LineWrappingIndentMode.Same;
+			this.scintilla.Font = new System.Drawing.Font("Courier New", 9.75F);
+			this.scintilla.ForeColor = System.Drawing.Color.Black;
+			this.scintilla.BackColor = System.Drawing.Color.White;
+			this.scintilla.ShowLineNumbers = true;
+			this.scintilla.ShowFoldingLines = true;
 			this.scintilla.Location = new System.Drawing.Point(0, 0);
-			this.scintilla.Margins.FoldMarginColor = System.Drawing.Color.WhiteSmoke;
-			this.scintilla.Margins.FoldMarginHighlightColor = System.Drawing.Color.WhiteSmoke;
-			this.scintilla.Margins.Left = 5;
-			this.scintilla.Margins.Margin0.Width = 38;
-			this.scintilla.Margins.Margin1.AutoToggleMarkerNumber = 0;
-			this.scintilla.Margins.Margin2.Width = 16;
-			this.scintilla.Name = "scintilla";
-			this.scintilla.Scrolling.HorizontalWidth = 1;
+			this.scintilla.Name = "editor";
 			this.scintilla.Size = new System.Drawing.Size(584, 447);
-			this.scintilla.Snippets.ActiveSnippetColor = System.Drawing.Color.DarkBlue;
-			this.scintilla.Styles.BraceBad.Size = 9F;
-			this.scintilla.Styles.BraceLight.Size = 9F;
-			this.scintilla.Styles.CallTip.FontName = "Tahoma";
-			this.scintilla.Styles.CallTip.Size = 8.25F;
-			this.scintilla.Styles.ControlChar.Size = 9F;
-			this.scintilla.Styles.Default.BackColor = System.Drawing.SystemColors.Window;
-			this.scintilla.Styles.Default.Size = 9F;
-			this.scintilla.Styles.IndentGuide.Size = 9F;
-			this.scintilla.Styles.LastPredefined.Size = 9F;
-			this.scintilla.Styles.LineNumber.BackColor = System.Drawing.SystemColors.ControlLight;
-			this.scintilla.Styles.LineNumber.FontName = "Courier New";
-			this.scintilla.Styles.LineNumber.ForeColor = System.Drawing.Color.Navy;
-			this.scintilla.Styles.LineNumber.Size = 9.75F;
-			this.scintilla.Styles.Max.Size = 9F;
 			this.scintilla.TabIndex = 0;
-			this.scintilla.TabStop = false;
-			this.scintilla.CharAdded += new System.EventHandler<ScintillaNET.CharAddedEventArgs>(this.ScintillaCharAdded);
-			this.scintilla.ModifiedChanged += new System.EventHandler(this.scintilla_ModifiedChanged);
 			this.scintilla.SelectionChanged += new System.EventHandler(this.scintilla_SelectionChanged);
-			this.scintilla.TextDeleted += new System.EventHandler<ScintillaNET.TextModifiedEventArgs>(this.scintilla_TextDeleted);
-			this.scintilla.ZoomChanged += new System.EventHandler(this.ScintillaZoomChanged);
-			this.scintilla.TextChanged += new System.EventHandler(this.ScintillaTextChanged);
+			this.scintilla.TextChanged += new System.EventHandler<FastColoredTextBoxNS.TextChangedEventArgs>(this.ScintillaTextChanged);
+			this.scintilla.TextChangedDelayed += new System.EventHandler<FastColoredTextBoxNS.TextChangedEventArgs>(this.EditorTextChangedDelayed);
 			this.scintilla.KeyDown += new System.Windows.Forms.KeyEventHandler(this.scintilla_KeyDown);
-			this.scintilla.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.ScintillaKeyPress);
 			this.scintilla.MouseMove += new System.Windows.Forms.MouseEventHandler(this.scintilla_MouseMove);
 			// 
 			// saveFileDialog
@@ -342,7 +304,7 @@
 		#endregion
 
 		public System.Windows.Forms.SaveFileDialog saveFileDialog;
-		private ScintillaNET.Scintilla scintilla;
+		private FastColoredTextBoxNS.FastColoredTextBox scintilla;
 		private System.Windows.Forms.StatusStrip statusStrip;
 		private System.Windows.Forms.ToolStripStatusLabel toolStripStatusLabel1;
 		private System.Windows.Forms.ToolStripStatusLabel toolStripStatusLabel_Line;

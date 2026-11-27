@@ -1,5 +1,5 @@
 <!--DO NOT MODIFY UNLESS YOU KNOW WHAT YOU ARE DOING-->
-<ScintillaNET>
+<Languages>
 	<Language Name="default">
 		<Styles>
 			<Style Name="LINENUMBER" ForeColor="DarkBlue"/>
@@ -381,4 +381,4 @@ $end$$selected$
 	}</Snippet>
 </Snippets>
   </Language>
-</ScintillaNET>
+</Languages>

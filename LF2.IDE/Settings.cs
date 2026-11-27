@@ -5,7 +5,6 @@ using System.Text;
 using System.IO;
 using System.Xml;
 using System.Xml.Serialization;
-using ScintillaNET;
 using System.Drawing;
 using System.Windows.Forms;
 
@@ -15,8 +14,8 @@ namespace LF2.IDE
 	{
 		public static Settings Current = new Settings();
 
-		public static readonly string SettingsDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData) + "\\LF2.IDE",
-			SettingsPath = SettingsDir + "\\settings-v2.xml";
+		public static readonly string SettingsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LF2.IDE"),
+			SettingsPath = Path.Combine(SettingsDir, "settings-v2.xml");
 
 		public string lfPath = "lf2.exe",
 			encryptionKey = "odBearBecauseHeIsVeryGoodSiuHungIsAGo",

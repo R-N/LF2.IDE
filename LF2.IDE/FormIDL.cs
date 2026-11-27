@@ -24,28 +24,6 @@ namespace LF2.IDE
 
 		MainForm mainForm;
 
-		#region WndProc
-		//enum WM
-		//{
-		//	MOUSEMOVE	= 512,
-		//	LBUTTONDOWN	= 513,
-		//	LBUTTONUP	= 514
-		//}
-
-		//protected override void WndProc(ref Message m)
-		//{
-		//	if (loaded && (WM)m.Msg == WM.MOUSEMOVE)
-		//	{
-		//		richTextBox1.AppendText("\r\n" + (WM)m.Msg + ": " + (((int)m.LParam) << 16 >> 16) + " " + (((int)m.LParam) >> 16) + " " + m.LParam + " " + m.WParam);
-		//		richTextBox1.Select(richTextBox1.TextLength, 0);
-		//		richTextBox1.ScrollToCaret();
-		//	}
-		//	base.WndProc(ref m);
-		//}
-		#endregion WndProc
-
-		[DllImport("user32.dll", CharSet = CharSet.Auto, CallingConvention = CallingConvention.Winapi)]
-		public static extern bool SetForegroundWindow(HandleRef window);
 
 		private void buttonLoad_Click(object sender, EventArgs e)
 		{
@@ -68,7 +46,7 @@ namespace LF2.IDE
 					(comboBox_DataType.SelectedIndex == 2 && (comboBox_BgId.SelectedIndex < 0)))
 					return;
 
-				string dat = mainForm.ActiveDocument.Scintilla.Text;
+				string dat = mainForm.ActiveDocument.Editor.Text;
 				
 				Process p = procs[comboBox_Process.SelectedIndex];
 				if(p.HasExited)
@@ -133,10 +111,10 @@ namespace LF2.IDE
 
 		private void RefreshProcessList()
 		{
-			procs = Process.GetProcessesByName("lf2");
+			procs = Platform.FindProcesses(Settings.Current.lfPath);
 			comboBox_Process.Items.Clear();
 			foreach (Process proc in procs)
-				comboBox_Process.Items.Add("[" + proc.Id + "] " + proc.MainModule.FileName);
+				comboBox_Process.Items.Add("[" + proc.Id + "] " + Settings.Current.lfPath);
 
 			if (comboBox_Process.Items.Count == 1)
 				comboBox_Process.SelectedIndex = 0;
@@ -144,25 +122,14 @@ namespace LF2.IDE
 				comboBox_Process.SelectedIndex = -1;
 		}
 
-		Process[] procs;
+		List<Process> procs;
 		public static DataTxt dataTxt;
 		public static DateTime dataTxtLastModification = DateTime.MinValue;
 		
 		private void FormIDL_Load(object sender, EventArgs e)
 		{
-			try
-			{
-				form = this;
-				FreshLoad();
-			}
-			catch (DllNotFoundException)
-			{
-				MessageBox.Show("'IDL.dll' could not be found, it is required for instant data loading functionality.\r\n" +
-					"If you think it supposed to come with the download please contact me (the developer) at LFE Forums (Help/Web...) or report a bug at GitHub:\r\n" +
-					Program.githubPage,
-					Program.Title, MessageBoxButtons.OK, MessageBoxIcon.Error);
-				this.Close();
-			}
+			form = this;
+			FreshLoad();
 		}
 
 		public void FreshLoad()
@@ -202,7 +169,7 @@ namespace LF2.IDE
 					comboBox_BgId.Enabled = false;
 					break;
 			}
-			string lfDir = Path.GetDirectoryName(Settings.Current.lfPath), dataTxtFile = lfDir + "\\data\\data.txt";
+			string lfDir = Path.GetDirectoryName(Settings.Current.lfPath), dataTxtFile = Platform.ResolvePath(lfDir, @"data\data.txt");
 			if (!File.Exists(dataTxtFile))
 			{
 				MessageBox.Show("'data.txt' could not found. Make sure you set 'LF2 Path' correct in the settings menu.", Program.Title);
@@ -231,9 +198,9 @@ namespace LF2.IDE
 
 			for(int i = 0; i < dataTxt.objects.Length; i++)
 			{
-				if (doc.FilePath != null ? 
-					doc.FilePath.EndsWith(dataTxt.objects[i].file, StringComparison.InvariantCultureIgnoreCase) : 
-					doc.TabText.EndsWith(dataTxt.objects[i].file, StringComparison.InvariantCultureIgnoreCase))
+				if (doc.FilePath != null ?
+					doc.FilePath.EndsWith(dataTxt.objects[i].file.Replace('\\', Path.DirectorySeparatorChar), StringComparison.InvariantCultureIgnoreCase) :
+					doc.TabText.EndsWith(dataTxt.objects[i].file.Replace('\\', Path.DirectorySeparatorChar), StringComparison.InvariantCultureIgnoreCase))
 				{
 					comboBox_ObjId.SelectedIndex = i;
 					comboBox_ObjType.SelectedIndex = (int)dataTxt.objects[i].type;
@@ -244,9 +211,9 @@ namespace LF2.IDE
 
 			for (int i = 0; i < dataTxt.backgrounds.Length; i++)
 			{
-				if (doc.FilePath != null ? 
-					doc.FilePath.EndsWith(dataTxt.backgrounds[i].file, StringComparison.InvariantCultureIgnoreCase) : 
-					doc.TabText.EndsWith(dataTxt.backgrounds[i].file, StringComparison.InvariantCultureIgnoreCase))
+				if (doc.FilePath != null ?
+					doc.FilePath.EndsWith(dataTxt.backgrounds[i].file.Replace('\\', Path.DirectorySeparatorChar), StringComparison.InvariantCultureIgnoreCase) :
+					doc.TabText.EndsWith(dataTxt.backgrounds[i].file.Replace('\\', Path.DirectorySeparatorChar), StringComparison.InvariantCultureIgnoreCase))
 				{
 					comboBox_BgId.SelectedIndex = i;
 					comboBox_DataType.SelectedIndex = 2;
@@ -299,32 +266,28 @@ namespace LF2.IDE
 		public void Log(string logMessage, bool stepCaret = true)
 		{
 			if (!string.IsNullOrEmpty(scintilla.Text))
-				scintilla.AppendText(scintilla.EndOfLine.EolString);
+				scintilla.AppendText(Environment.NewLine);
 			scintilla.AppendText(logMessage);
 			StepCaret(stepCaret);
 		}
 
 		public void Log(string logMessage, string logTitle, bool stepCaret = true)
 		{
-			int caret = scintilla.Lines.Count;
 			Log(logTitle, false);
-			scintilla.AppendText(scintilla.EndOfLine.EolString + logMessage);
+			scintilla.AppendText(Environment.NewLine + logMessage);
 			StepCaret(stepCaret);
-			StepCaret(caret, stepCaret);
-			scintilla.Lines.Current.AddMarker(scintilla.Markers.Folder);
 		}
 
 		private void StepCaret(bool condition = true)
 		{
-			StepCaret(scintilla.Lines.Count, condition);
+			StepCaret(scintilla.LinesCount - 1, condition);
 		}
 
 		private void StepCaret(int caretLine, bool condition = true)
 		{
 			if (condition)
 			{
-				scintilla.Caret.LineNumber = caretLine;
-				scintilla.Caret.EnsureVisible();
+				scintilla.Navigate(Math.Max(0, Math.Min(caretLine, scintilla.LinesCount - 1)));
 				scintilla.Refresh();
 			}
 		}
@@ -335,42 +298,16 @@ namespace LF2.IDE
 			scintilla.Refresh();
 		}
 
-		void ScintillaZoomChanged(object sender, EventArgs e)
-		{
-			SetMarginAuto();
-		}
-
-		void ScintillaTextChanged(object sender, EventArgs e)
-		{
-			SetMarginAuto();
-		}
-
-		int last_measure_lines = -1;
-
-		public void SetMarginAuto()
-		{
-			int lines = scintilla.Lines.Count;
-			if (lines != last_measure_lines)
-			{
-				last_measure_lines = lines;
-				scintilla.Margins[0].Width = TextRenderer.MeasureText(lines.ToString(), scintilla.Font).Width + scintilla.Zoom * 3;
-			}
-		}
-
-		private void scintilla_KeyDown(object sender, KeyEventArgs e)
-		{
-			if (!(e.Modifiers == Keys.Control && e.KeyCode == Keys.C))
-				e.SuppressKeyPress = e.Handled = true;
-		}
 
 		private void copySelectedToolStripMenuItem_Click(object sender, EventArgs e)
 		{
-			scintilla.Clipboard.Copy(true);
+			scintilla.Copy();
 		}
 
 		private void copyAllToolStripMenuItem_Click(object sender, EventArgs e)
 		{
-			scintilla.Clipboard.Copy(0, scintilla.TextLength);
+			if (!string.IsNullOrEmpty(scintilla.Text))
+				Clipboard.SetText(scintilla.Text);
 		}
 
 		private void FormIDL_Activated(object sender, EventArgs e)

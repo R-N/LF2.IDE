@@ -14,7 +14,7 @@ using System.Runtime.Serialization.Formatters;
 using System.Text.RegularExpressions;
 using System.Threading;
 using Microsoft.Win32;
-using ScintillaNET;
+using FastColoredTextBoxNS;
 
 namespace LF2.IDE
 {
@@ -40,8 +40,7 @@ namespace LF2.IDE
 		private void Insert(object sender, EventArgs e)
 		{
 			if (mainForm.ActiveDocument != null)
-				mainForm.ActiveDocument.Scintilla.Selection.Text = richTextBox.Text;
-			mainForm.ActiveDocument.Scintilla.EndOfLine.ConvertAllLines(mainForm.ActiveDocument.Scintilla.EndOfLine.Mode);
+				mainForm.ActiveDocument.Editor.InsertText(richTextBox.Text);
 		}
 
 		private void Generate(object sender, EventArgs e)
@@ -169,7 +168,7 @@ namespace LF2.IDE
 		void NewLine(object sender, EventArgs e)
 		{
 			if (mainForm.ActiveDocument != null)
-				mainForm.ActiveDocument.Scintilla.Selection.Text = mainForm.ActiveDocument.Scintilla.EndOfLine.EolString;
+				mainForm.ActiveDocument.Editor.InsertText(Environment.NewLine);
 		}
 
 		void FormFrame_Closing(object sender, FormClosingEventArgs e)
@@ -190,16 +189,16 @@ namespace LF2.IDE
 
 		class UndoHandler : IDisposable
 		{
-			Scintilla sci;
+			FastColoredTextBox editor;
 
-			public UndoHandler(Scintilla sci)
+			public UndoHandler(FastColoredTextBox editor)
 			{
-				(this.sci = sci).UndoRedo.BeginUndoAction();
+				(this.editor = editor).BeginAutoUndo();
 			}
 
 			public void Dispose()
 			{
-				sci.UndoRedo.EndUndoAction();
+				editor.EndAutoUndo();
 			}
 		}
 
@@ -215,12 +214,14 @@ namespace LF2.IDE
 				pic = (int)numericUpDown_pic.Value,
 				next;
 			int.TryParse(textBox_next.Text, out next);
-			using (UndoHandler undoHandler = new UndoHandler(doc.Scintilla))
+			using (UndoHandler undoHandler = new UndoHandler(doc.Editor))
 			{
-				for (int i = doc.Scintilla.Text.IndexOf("<frame>"), j = doc.Scintilla.Text.IndexOf("<frame_end>", i + 7); i >= 0 && j >= 0; i = doc.Scintilla.Text.IndexOf("<frame>", i + 7), j = doc.Scintilla.Text.IndexOf("<frame_end>", i + 7))
+				for (int i = doc.Editor.Text.IndexOf("<frame>"); i >= 0; i = doc.Editor.Text.IndexOf("<frame>", i + 7))
 				{
-					var frameRange = doc.Scintilla.GetRange(i, j + 11);
-					string frame = frameRange.Text;
+					int j = doc.Editor.Text.IndexOf("<frame_end>", i + 7);
+					if (j < 0)
+						break;
+					string frame = doc.Editor.Text.Substring(i, j + 11 - i);
 					GroupCollection match = Regex.Match(frame, LF2DataUtils.Pattern.frame).Groups;
 					int num;
 					try
@@ -229,7 +230,7 @@ namespace LF2.IDE
 					}
 					catch (Exception ex)
 					{
-						mainForm.formEventLog.Error(new LF2.IDE.LF2DataUtils.DataSyntaxException("Frame index could not be read\r\nFrame starting at line: " + doc.Scintilla.Lines.FromPosition(i).Number, ex), "Data Syntax Error");
+						mainForm.formEventLog.Error(new LF2.IDE.LF2DataUtils.DataSyntaxException("Frame index could not be read\r\nFrame starting at line: " + (doc.Editor.PositionToPlace(i).iLine + 1), ex), "Data Syntax Error");
 						return;
 					}
 					if (num >= numericUpDown_rangeStart.Value && num <= numericUpDown_rangeEnd.Value)
@@ -291,7 +292,9 @@ namespace LF2.IDE
 						if (checkBoxMerge_sound.CheckState == CheckState.Checked || checkBoxMerge_sound.CheckState == CheckState.Indeterminate && frameDat.sound != null)
 							frameDat.sound = textBox_sound.Text;
 
-						frameRange.Text = frameDat.ToString();
+						doc.Editor.Selection.Start = doc.Editor.PositionToPlace(i);
+						doc.Editor.Selection.End = doc.Editor.PositionToPlace(j + 11);
+						doc.Editor.InsertText(frameDat.ToString());
 
 						if(checkBoxInc_index.Checked)
 							index++;

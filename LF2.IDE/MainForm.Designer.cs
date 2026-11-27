@@ -66,7 +66,7 @@
 			this.toolStripSeparator_mainToolStrip8 = new System.Windows.Forms.ToolStripSeparator();
 			this.jumpToToolStripButton = new System.Windows.Forms.ToolStripButton();
 			this.toolStripSeparator_mainToolStrip9 = new System.Windows.Forms.ToolStripSeparator();
-			this.toolStripIncrementalSearcher = new ScintillaNET.ToolStripIncrementalSearcher();
+			this.toolStripIncrementalSearcher = new System.Windows.Forms.ToolStripTextBox();
 			this.toolStripSeparator_mainToolStrip6 = new System.Windows.Forms.ToolStripSeparator();
 			this.mainToolStrip = new System.Windows.Forms.ToolStrip();
 			this.toolStripButton_NavigateBack = new System.Windows.Forms.ToolStripButton();
@@ -421,10 +421,9 @@
 			// 
 			// toolStripIncrementalSearcher
 			// 
-			this.toolStripIncrementalSearcher.BackColor = System.Drawing.Color.Transparent;
+			this.toolStripIncrementalSearcher.BackColor = System.Drawing.SystemColors.Window;
 			this.toolStripIncrementalSearcher.Enabled = false;
 			this.toolStripIncrementalSearcher.Name = "toolStripIncrementalSearcher";
-			this.toolStripIncrementalSearcher.Scintilla = null;
 			this.toolStripIncrementalSearcher.Size = new System.Drawing.Size(262, 24);
 			// 
 			// toolStripSeparator_mainToolStrip6
@@ -1556,7 +1555,7 @@
 
 		}
 		public System.Windows.Forms.ToolStripButton insertDummyToolStripButton;
-		public ScintillaNET.ToolStripIncrementalSearcher toolStripIncrementalSearcher;
+		public System.Windows.Forms.ToolStripTextBox toolStripIncrementalSearcher;
 		public System.Windows.Forms.ToolStripMenuItem openRecentToolStripMenuItem;
 		public System.Windows.Forms.ToolStripMenuItem checkUpdatesAutoToolStripMenuItem;
 		public System.ComponentModel.BackgroundWorker backgroundWorker_UpdateChecker;

@@ -11,6 +11,8 @@ namespace LF2.IDE
 	{
 		public MediaPanel()
 		{
+			if (!Platform.IsWindows)
+				throw new PlatformNotSupportedException("Windows Media Player is only available on Windows.");
 			InitializeComponent();
 		}
 

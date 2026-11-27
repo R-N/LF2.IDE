@@ -1,4 +1,4 @@
-﻿using ScintillaNET;
+﻿using FastColoredTextBoxNS;
 using System;
 using System.Linq;
 using System.Collections.Generic;
@@ -12,6 +12,7 @@ using System.Windows.Forms;
 using System.Threading;
 using WeifenLuo.WinFormsUI.Docking;
 using System.Diagnostics;
+using System.Xml;
 
 namespace LF2.IDE
 {
@@ -51,20 +52,41 @@ namespace LF2.IDE
 		}
 
 
-		public Scintilla Scintilla
+		public FastColoredTextBox Editor { get { return scintilla; } }
+		private AutocompleteMenu autocomplete;
+		private string lineEnding = "\r\n";
+		private string syntaxLanguage;
+		private readonly List<KeyValuePair<Style, string>> syntaxRules = new List<KeyValuePair<Style, string>>();
+		private readonly Style[] keywordStyles = {
+			new TextStyle(Brushes.Blue, null, FontStyle.Regular),
+			new TextStyle(Brushes.Green, null, FontStyle.Regular),
+			new TextStyle(Brushes.DarkRed, null, FontStyle.Regular)
+		};
+		private static readonly string[] foldingNames = { "bmp_begin", "frame", "stage", "phase", "weapon_strength_list", "object", "bdy", "itr", "bpoint", "cpoint", "wpoint", "opoint" };
+		private static readonly string[] foldingEnds = { "bmp_end", "frame_end", "stage_end", "phase_end", "weapon_strength_list_end", "object_end", "bdy_end", "itr_end", "bpoint_end", "cpoint_end", "wpoint_end", "opoint_end" };
+		private sealed class NamedSnippet : SnippetAutocompleteItem
 		{
-			get
+			private readonly string shortcut;
+
+			public NamedSnippet(string shortcut, string text) : base(text)
 			{
-				return scintilla;
+				this.shortcut = shortcut;
+				MenuText = shortcut + " (snippet)";
+			}
+
+			public override CompareResult Compare(string fragment)
+			{
+				return shortcut.StartsWith(fragment, StringComparison.OrdinalIgnoreCase) ? CompareResult.Visible : CompareResult.Hidden;
 			}
 		}
+
 
 
 		#region Methods
 
 		private void AddOrRemoveAsteric()
 		{
-			if (Scintilla.Modified)
+			if (Editor.IsChanged)
 			{
 				if (!TabText.EndsWith(" *"))
 					TabText += " *";
@@ -79,7 +101,7 @@ namespace LF2.IDE
 
 		private void DocumentForm_FormClosing(object sender, FormClosingEventArgs e)
 		{
-			if (Scintilla.Modified)
+			if (Editor.IsChanged)
 			{
 				// Prompt if not saved
 				string message = String.Format(
@@ -117,9 +139,8 @@ namespace LF2.IDE
 				dialog.FileName = fileName + ".html";
 				if (dialog.ShowDialog() == DialogResult.OK)
 				{
-					scintilla.Lexing.Colorize(); // Make sure the document is current
-					using (StreamWriter sw = new StreamWriter(dialog.FileName))
-						scintilla.ExportHtml(sw, fileName, false);
+					ApplySyntax();
+					File.WriteAllText(dialog.FileName, Editor.Html);
 
 					return true;
 				}
@@ -128,6 +149,15 @@ namespace LF2.IDE
 			return false;
 		}
 
+
+		public void SetTextFromFile(string text)
+		{
+			lineEnding = text.Contains("\r\n") ? "\r\n" : "\n";
+			Editor.Text = text;
+			Editor.ClearUndo();
+			Editor.IsChanged = false;
+			AddOrRemoveAsteric();
+		}
 
 		public bool Save()
 		{
@@ -139,12 +169,13 @@ namespace LF2.IDE
 
 		public bool Save(string filePath)
 		{
-			if (filePath.EndsWith(".dat"))
-				LF2DataUtils.Encrypt(Scintilla.Text, filePath);
+			string text = Editor.Text.Replace("\r\n", "\n").Replace("\n", lineEnding);
+			if (filePath.EndsWith(".dat", StringComparison.OrdinalIgnoreCase))
+				LF2DataUtils.Encrypt(text, filePath);
 			else
-				File.WriteAllText(filePath, Scintilla.Text, Encoding.Default);
-
-			scintilla.Modified = false;
+				File.WriteAllText(filePath, text, Platform.TextEncoding);
+			Editor.IsChanged = false;
+			AddOrRemoveAsteric();
 			return true;
 		}
 
@@ -201,8 +232,6 @@ namespace LF2.IDE
 
 		private void scintilla_ModifiedChanged(object sender, EventArgs e)
 		{
-			//if (!File.Exists(FilePath))
-			//	Scintilla.Modified = true;
 			AddOrRemoveAsteric();
 		}
 
@@ -211,25 +240,20 @@ namespace LF2.IDE
 			syncTimer.Elapsed += syncTimer_Elapsed;
 			mainForm = main;
 			InitializeComponent();
-			scintilla.DocumentNavigation.MaxHistorySize = 20;
-			scintilla.DocumentNavigation.NavigationPointTimeout = 500;
+			autocomplete = new AutocompleteMenu(Editor);
+			autocomplete.Opening += (sender, e) => e.Cancel = !Settings.Current.autoComplete || !auto;
 		}
 
 		void DocumentFormActivated(object sender, EventArgs e)
 		{
-			Scintilla.Focus();
+			Editor.Focus();
 		}
 
 		void DocumentFormLoad(object sender, EventArgs e)
 		{
 			ToolTipText = _filePath ?? TabText;
 			SetLanguage();
-			scintilla.NativeInterface.SendMessageDirect(2516, true);
-			SetMarginAuto();
-
-			scintilla.LineWrapping.Mode = Settings.Current.lineWrapping ? ScintillaNET.LineWrappingMode.Word : ScintillaNET.LineWrappingMode.None;
-			scintilla.Whitespace.Mode = Settings.Current.showWhiteSpaces ? WhitespaceMode.VisibleAlways : WhitespaceMode.Invisible;
-			scintilla.EndOfLine.IsVisible = Settings.Current.showEndOfLineChars;
+			Editor.WordWrap = Settings.Current.lineWrapping;
 
 			if (Settings.Current.lfPath == null || !File.Exists(Settings.Current.lfPath))
 				return;
@@ -252,14 +276,16 @@ namespace LF2.IDE
 		{
 			spriteList.Clear();
 			string dat = scintilla.Text;
-			int begin = dat.IndexOf("<bmp_begin>"), end = dat.IndexOf("<bmp_end>", begin + 11);
-			if (begin < 0 || end < 0) return false;
-			string script = dat.Substring(begin + 11, end - begin);
+			int begin = dat.IndexOf("<bmp_begin>");
+			if (begin < 0) return false;
+			int end = dat.IndexOf("<bmp_end>", begin + 11);
+			if (end < 0) return false;
+			string script = dat.Substring(begin + 11, end - begin - 11);
 			MatchCollection matches = Regex.Matches(script, SpriteSheet.regexPattern);
 			if (matches.Count < 1) return false;
 			for (int i = 0; i < matches.Count; i++)
 			{
-				string path = lfdir + "\\" + matches[i].Groups[3].Value.Trim();
+				string path = Platform.ResolvePath(lfdir, matches[i].Groups[3].Value.Trim());
 				Bitmap img = HelperTools.GetClonedBitmap(path);
 				img.Tag = Path.GetFileName(path);
 				int si = int.Parse(matches[i].Groups[1].Value.Trim()),
@@ -335,147 +361,159 @@ namespace LF2.IDE
 		public void SetLanguage(string language)
 		{
 			language = language.ToLowerInvariant();
+			syntaxLanguage = null;
+			documentType = DocumentType.Default;
+			auto = false;
+			Editor.Language = Language.Custom;
+			Editor.TabLength = 4;
+			Editor.AutoIndent = true;
+			switch (language)
 			{
-				this.Scintilla.Snippets.List.Clear();
-				this.Scintilla.AutoComplete.List.Clear();
-				this.Scintilla.ConfigurationManager.Language = "default";
-				documentType = DocumentType.Default;
-				switch(language)
-				{
-					case "dat":
-						Scintilla.Indentation.UseTabs = false;
-						if (Scintilla.Text.Contains("<stage>"))
-						{
-							Scintilla.Indentation.TabWidth = 8;
-							this.Scintilla.ConfigurationManager.Language = "stage_dat";
-							documentType = DocumentType.StageData;
-						}
-						else if (Scintilla.Text.Contains("zboundary:"))
-						{
-							Scintilla.Indentation.TabWidth = 2;
-							this.Scintilla.ConfigurationManager.Language = "bg_dat";
-							documentType = DocumentType.BgData;
-						}
-						else
-						{
-							Scintilla.Indentation.TabWidth = 3;
-							this.Scintilla.ConfigurationManager.Language = "object_dat";
-							documentType = DocumentType.ObjectData;
-						}
-						Scintilla.EndOfLine.Mode = EndOfLineMode.LF;
-						this.Icon = Properties.Resources.DocumentDAT;
-						auto = true;
-						smart = true;
-						break;
-					case "default":
-						goto default;
-					case "txt":
-						if (TabText.TrimEnd(' ', '*') != "data.txt")
-							goto default;
-						Scintilla.Indentation.UseTabs = false;
-						Scintilla.Indentation.TabWidth = 4;
-						Scintilla.EndOfLine.Mode = EndOfLineMode.Crlf;
-						this.Icon = Properties.Resources.DocumentDAT;
-						auto = true;
-						smart = true;
-						this.Scintilla.ConfigurationManager.Language = "data_txt";
+				case "dat":
+					auto = true;
+					if (Editor.Text.Contains("<stage>"))
+					{
+						documentType = DocumentType.StageData;
+						syntaxLanguage = "stage_dat";
+						Editor.TabLength = 8;
+					}
+					else if (Editor.Text.Contains("zboundary:"))
+					{
+						documentType = DocumentType.BgData;
+						syntaxLanguage = "bg_dat";
+						Editor.TabLength = 2;
+					}
+					else
+					{
+						documentType = DocumentType.ObjectData;
+						syntaxLanguage = "object_dat";
+						Editor.TabLength = 3;
+					}
+					Icon = Properties.Resources.DocumentDAT;
+					break;
+				case "txt":
+					if (string.Equals(TabText.TrimEnd(' ', '*'), "data.txt", StringComparison.OrdinalIgnoreCase))
+					{
 						documentType = DocumentType.DataTxt;
+						syntaxLanguage = "data_txt";
+						auto = true;
+						Icon = Properties.Resources.DocumentDAT;
 						break;
-					case "as":
-						Scintilla.Indentation.UseTabs = true;
-						Scintilla.Indentation.TabWidth = 4;
-						Scintilla.EndOfLine.Mode = EndOfLineMode.Crlf;
-						this.Icon = Properties.Resources.DocumentAS;
-						auto = false;
-						smart = true;
-						this.Scintilla.ConfigurationManager.Language = language;
-						documentType = DocumentType.AngelScript;
-						break;
-					case "cs":
-						Scintilla.Indentation.UseTabs = true;
-						Scintilla.Indentation.TabWidth = 4;
-						Scintilla.EndOfLine.Mode = EndOfLineMode.Crlf;
-						this.Icon = Properties.Resources.DocumentCS;
-						auto = false;
-						smart = true;
-						this.Scintilla.ConfigurationManager.Language = language;
-						documentType = DocumentType.CSharp;
-						break;
-					case "html":
-					case "xml":
-						Scintilla.Indentation.UseTabs = false;
-						Scintilla.Indentation.TabWidth = 2;
-						Scintilla.EndOfLine.Mode = EndOfLineMode.Crlf;
-						this.Icon = Properties.Resources.DocumentXML;
-						auto = false;
-						smart = true;
-						this.Scintilla.ConfigurationManager.Language = language;
-						documentType = DocumentType.XML;
-						break;
-					default:
-						Scintilla.Indentation.UseTabs = true;
-						Scintilla.Indentation.TabWidth = 4;
-						Scintilla.EndOfLine.Mode = EndOfLineMode.Crlf;
-						this.Icon = Properties.Resources.Document;
-						documentType = DocumentType.Default;
-						auto = false;
-						smart = false;
-						break;
+					}
+					goto default;
+				case "as":
+					documentType = DocumentType.AngelScript;
+					Editor.Language = Language.CSharp;
+					Icon = Properties.Resources.DocumentAS;
+					break;
+				case "cs":
+					documentType = DocumentType.CSharp;
+					Editor.Language = Language.CSharp;
+					Icon = Properties.Resources.DocumentCS;
+					break;
+				case "html":
+				case "xml":
+					documentType = DocumentType.XML;
+					Editor.Language = language == "xml" ? Language.XML : Language.HTML;
+					Editor.TabLength = 2;
+					Icon = Properties.Resources.DocumentXML;
+					break;
+				default:
+					Icon = Properties.Resources.Document;
+					break;
+			}
+			syntaxRules.Clear();
+			if (syntaxLanguage != null && File.Exists(Program.langPath))
+			{
+				var xml = new XmlDocument();
+				xml.Load(Program.langPath);
+				var node = xml.SelectSingleNode("/Languages/Language[@Name='" + syntaxLanguage + "']");
+				if (node != null)
+				{
+					var colors = keywordStyles;
+					foreach (XmlNode keywords in node.SelectNodes("Lexer/Keywords"))
+					{
+						int index;
+						if (!int.TryParse(keywords.Attributes["List"].Value, out index) || index < 0 || index >= colors.Length)
+							continue;
+						var words = Regex.Split(keywords.InnerText.Trim(), @"\s+").Where(w => w.Length != 0).Select(Regex.Escape);
+						syntaxRules.Add(new KeyValuePair<Style, string>(colors[index], @"\b(?:" + string.Join("|", words.ToArray()) + @")\b"));
+					}
+					var list = node.SelectSingleNode("AutoComplete/List");
+					var items = new List<AutocompleteItem>();
+					if (list != null)
+						foreach (string word in Regex.Split(list.InnerText.Trim(), @"\s+"))
+							if (word.Length != 0) items.Add(new AutocompleteItem(word));
+					foreach (XmlNode snippet in node.SelectNodes("Snippets/Snippet"))
+					{
+						string text = Regex.Replace(snippet.InnerText, @"\$([^$]+)\$", m => m.Groups[1].Value == "end" ? "^" : m.Groups[1].Value);
+						if (!text.Contains("^")) text += "^";
+						items.Add(new NamedSnippet(snippet.Attributes["Shortcut"].Value, text));
+					}
+					autocomplete.Items.SetAutocompleteItems(items);
 				}
-				Scintilla.AutoComplete.List.Sort();
+			}
+			ApplySyntax();
+		}
+
+		private void ApplySyntax()
+		{
+			if (syntaxLanguage == null)
+				return;
+			Editor.Range.ClearStyle(StyleIndex.All);
+			foreach (var rule in syntaxRules)
+				Editor.Range.SetStyle(rule.Key, rule.Value, RegexOptions.IgnoreCase);
+			Editor.Range.ClearFoldingMarkers();
+			for (int i = 0; i < foldingNames.Length; i++)
+			{
+				string start = @"(?im)^[ \t]*" + (i < 6 ? "<" + foldingNames[i] + ">" : foldingNames[i] + ":");
+				string end = @"(?im)^[ \t]*" + (i < 6 ? "<" + foldingEnds[i] + ">" : foldingEnds[i] + ":");
+				Editor.Range.SetFoldingMarkers(start, end);
 			}
 		}
 
-		void ScintillaCharAdded(object sender, CharAddedEventArgs e)
+		public void FoldLevel(int level, bool fold)
 		{
-			if (auto && Settings.Current.autoComplete)
+			ApplySyntax();
+			if (level == 0)
 			{
-				if (scintilla.Lexing.WordChars.Contains(e.Ch.ToString()))
+				if (fold) Editor.CollapseAllFoldingBlocks();
+				else Editor.ExpandAllFoldingBlocks();
+				return;
+			}
+			int depth = 0;
+			for (int i = 0; i < Editor.LinesCount; i++)
+			{
+				if (!string.IsNullOrEmpty(Editor[i].FoldingEndMarker))
+					depth = Math.Max(0, depth - 1);
+				if (!string.IsNullOrEmpty(Editor[i].FoldingStartMarker))
 				{
-					string word = scintilla.GetWordFromPosition(scintilla.Caret.Position);
-					foreach (string str in scintilla.AutoComplete.List)
+					depth++;
+					if (depth == level)
 					{
-						try { if (str[0] > word[0]) break; }
-						catch { }
-
-						if (str.StartsWith(word))
-						{
-							scintilla.AutoComplete.Show();
-							break;
-						}
+						if (fold) Editor.CollapseFoldingBlock(i);
+						else if (Editor.LineInfos[i].VisibleState == FastColoredTextBoxNS.VisibleState.StartOfHiddenBlock) Editor.ExpandFoldedBlock(i);
 					}
 				}
 			}
-			if (Scintilla.EndOfLine.EolString[Scintilla.EndOfLine.EolString.Length - 1] == e.Ch && smart)
-			{
-				scintilla.Lines.Current.Indentation = scintilla.Lines.Current.Previous.Indentation;
-				scintilla.CurrentPos = scintilla.Lines.Current.IndentPosition;
-			}
 		}
 
-		void ScintillaKeyPress(object sender, KeyPressEventArgs e)
+		void EditorTextChangedDelayed(object sender, TextChangedEventArgs e)
 		{
-			if (auto && Settings.Current.autoComplete)
-				if (e.KeyChar == ':' || e.KeyChar == '>')
-				{
-					e.Handled = true;
-					scintilla.AutoComplete.Accept();
-					scintilla.Selection.Text = e.KeyChar.ToString();
-				}
+			ApplySyntax();
 		}
 
-		void ScintillaZoomChanged(object sender, EventArgs e)
+		void ScintillaTextChanged(object sender, TextChangedEventArgs e)
 		{
-			SetMarginAuto();
-		}
-
-		void ScintillaTextChanged(object sender, EventArgs e)
-		{
+			AddOrRemoveAsteric();
 			if (Monitor.TryEnter(syncLock))
 			{
-				justEdited = true;
-				SetMarginAuto();
-				syncTimer.Start();
+				try
+				{
+					justEdited = true;
+					syncTimer.Start();
+				}
+				finally { Monitor.Exit(syncLock); }
 			}
 			else
 				syncTimer.Stop();
@@ -483,39 +521,30 @@ namespace LF2.IDE
 
 		public void SetMarginAuto()
 		{
-			int last_measure_lines = -1;
-			int lines = scintilla.Lines.Count;
-			if (lines != last_measure_lines)
-			{
-				last_measure_lines = lines;
-				Scintilla.Margins[0].Width = TextRenderer.MeasureText(lines.ToString(), Scintilla.Font).Width + Scintilla.Zoom * 3;
-			}
+			Editor.ShowLineNumbers = true;
 		}
 
 		#endregion Methods
 
 		private void scintilla_SelectionChanged(object sender, EventArgs e)
 		{
-			toolStripStatusLabel_Line.Text = (scintilla.Lines.Current.Number + 1).ToString();
-			toolStripStatusLabel_Col.Text = (scintilla.GetColumn(scintilla.Caret.Position) + 1).ToString();
-			toolStripStatusLabel_Ch.Text = (scintilla.Caret.Position - scintilla.Lines.Current.StartPosition + 1).ToString();
-			toolStripStatusLabel_SelLen.Text = (scintilla.Selection.Length).ToString();
-			int sel = scintilla.Selection.Range.EndingLine.Number - scintilla.Selection.Range.StartingLine.Number;
-			toolStripStatusLabel_SelLines.Text = (scintilla.Selection.Length > 0 ? sel + 1 : 0).ToString();
+			Place caret = Editor.Selection.Start;
+			toolStripStatusLabel_Line.Text = (caret.iLine + 1).ToString();
+			toolStripStatusLabel_Col.Text = (caret.iChar + 1).ToString();
+			toolStripStatusLabel_Ch.Text = (caret.iChar + 1).ToString();
+			toolStripStatusLabel_SelLen.Text = Editor.Selection.Length.ToString();
+			int sel = Math.Abs(Editor.Selection.End.iLine - caret.iLine);
+			toolStripStatusLabel_SelLines.Text = (Editor.Selection.Length > 0 ? sel + 1 : 0).ToString();
 			if (!justEdited)
-			{
-				SyncToDesign(auto : true);
-			}
+				SyncToDesign(auto: true);
 			mainForm.UpdateNavigationControls();
 		}
 
 		private void scintilla_KeyDown(object sender, KeyEventArgs e)
 		{
-			if (e.KeyCode == Keys.Insert)
-				toolStripStatusLabel_InsOvr.Text = scintilla.OverType ? "INS" : "OVR";
-			else if (e.KeyCode == Keys.Z && e.Modifiers == (Keys.Control | Keys.Shift))
+			if (e.KeyCode == Keys.Z && e.Modifiers == (Keys.Control | Keys.Shift))
 			{
-				scintilla.UndoRedo.Redo();
+				Editor.Redo();
 				e.Handled = true;
 				e.SuppressKeyPress = true;
 			}
@@ -528,14 +557,18 @@ namespace LF2.IDE
 				return false;
 			try
 			{
-				Monitor.Enter(syncLock);
-				int fs = Scintilla.Text.LastIndexOf("<frame>", Scintilla.Lines.Current.EndPosition);
+				int caret = Editor.PlaceToPosition(Editor.Selection.Start);
+				int line = Editor.Selection.Start.iLine;
+				int lineEnd = Editor.PlaceToPosition(new Place(Editor.Lines[line].Length, line));
+				if (Editor.Text.Length == 0)
+					return false;
+				int fs = Editor.Text.LastIndexOf("<frame>", Math.Min(lineEnd, Editor.Text.Length - 1));
 				if (fs < 0)
 					return false;
-				int fe = Scintilla.Text.IndexOf("<frame_end>", fs + 7);
-				if (fe < 0 || fe + 11 < Scintilla.CurrentPos)
+				int fe = Editor.Text.IndexOf("<frame_end>", fs + 7);
+				if (fe < 0 || fe + 11 < caret)
 					return false;
-				var fr = Scintilla.GetRange(fs, fe + 11);
+				var fr = new FastColoredTextBoxNS.Range(Editor, Editor.PositionToPlace(fs), Editor.PositionToPlace(fe + 11));
 				{
 					var frame = LF2DataUtils.ReadFrame(fr.Text);
 					mainForm.formDesign.EditIn();
@@ -743,14 +776,10 @@ namespace LF2.IDE
 		{
 			if (File.Exists(_filePath))
 			{
-				Process.Start("explorer", "/select, " + _filePath);
+				Platform.Reveal(_filePath);
 			}
 		}
 
-		private void scintilla_TextDeleted(object sender, TextModifiedEventArgs e)
-		{
-			scintilla.AutoComplete.Cancel();
-		}
 
 		private void scintilla_MouseMove(object sender, MouseEventArgs e)
 		{
@@ -768,9 +797,9 @@ namespace LF2.IDE
 
 		private void DocumentForm_Shown(object sender, EventArgs e)
 		{
-			scintilla.Selection.Start = this.selectionStart;
-			scintilla.Selection.End = this.selectionEnd;
-			scintilla.Lines.FirstVisibleIndex = this.firstVisibleLine;
+			scintilla.Selection.Start = scintilla.PositionToPlace(Math.Min(this.selectionStart, scintilla.TextLength));
+			scintilla.Selection.End = scintilla.PositionToPlace(Math.Min(this.selectionEnd, scintilla.TextLength));
+			scintilla.Navigate(Math.Min(this.firstVisibleLine, scintilla.LinesCount - 1));
 		}
 	}
 

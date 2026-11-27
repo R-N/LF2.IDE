@@ -23,7 +23,7 @@ namespace LF2.IDE
 			drawBox_OriginalSprite.Image = original = HelperTools.GetClonedBitmap(path);
 			drawBox_ModifedSprite.Image = (Bitmap)original.Clone();
 
-			this.path = Path.GetDirectoryName(path) + "\\" + Path.GetFileNameWithoutExtension(path) + "_mirror" + Path.GetExtension(path);
+			this.path = Path.Combine(Path.GetDirectoryName(path), Path.GetFileNameWithoutExtension(path) + "_mirror" + Path.GetExtension(path));
 		}
 
 		Bitmap original;

@@ -25,6 +25,10 @@ namespace LF2.IDE
 		{
 			Application.ThreadException += new ThreadExceptionEventHandler(this.UnhandledError);
 			InitializeComponent();
+			InitializePortMenus();
+			showMediaWindowToolStripMenuItem.Visible = Platform.IsWindows;
+			toolStripIncrementalSearcher.TextChanged += IncrementalSearch;
+			UpdateNavigationControls();
 
 			this.args = args;
 
@@ -109,10 +113,10 @@ namespace LF2.IDE
 				solutionExplorerLoaded = false;
 				solutionExplorer = new SolutionExplorer(this);
 			}
-			if (media == null)
+			if (Platform.IsWindows && media == null)
 			{
 				mediaLoaded = false;
-				media = new MediaPanel();
+				media = CreateMediaPanel();
 			}
 
 			try
@@ -139,7 +143,7 @@ namespace LF2.IDE
 				formShape.Show(dockPanel);
 				formShape.AutoHidePortion = 300;
 			}
-			if (!mediaLoaded)
+			if (Platform.IsWindows && !mediaLoaded && media != null)
 			{
 				media.Show(dockPanel);
 				media.AutoHidePortion = 300;
@@ -155,10 +159,29 @@ namespace LF2.IDE
 				solutionExplorer.AutoHidePortion = 300;
 			}
 
+			// DockPanelSuite's auto-hide fly-outs don't open reliably on Mono, so pin those windows instead.
+			if (!Platform.IsWindows)
+			{
+				dockPanel.DockTopPortion = dockPanel.DockBottomPortion = 0.2;
+				dockPanel.DockLeftPortion = dockPanel.DockRightPortion = 0.25;
+				foreach (var content in new List<WeifenLuo.WinFormsUI.Docking.IDockContent>(dockPanel.Contents))
+				{
+					var handler = content.DockHandler;
+					switch (handler.DockState)
+					{
+						case WeifenLuo.WinFormsUI.Docking.DockState.DockLeftAutoHide: handler.DockState = WeifenLuo.WinFormsUI.Docking.DockState.DockLeft; break;
+						case WeifenLuo.WinFormsUI.Docking.DockState.DockRightAutoHide: handler.DockState = WeifenLuo.WinFormsUI.Docking.DockState.DockRight; break;
+						case WeifenLuo.WinFormsUI.Docking.DockState.DockTopAutoHide: handler.DockState = WeifenLuo.WinFormsUI.Docking.DockState.DockTop; break;
+						case WeifenLuo.WinFormsUI.Docking.DockState.DockBottomAutoHide: handler.DockState = WeifenLuo.WinFormsUI.Docking.DockState.DockBottom; break;
+					}
+				}
+			}
+
 			formDesign.checkBoxLinkage.Checked = Settings.Current.syncDesign;
 
 			this.Bounds = Settings.Current.window;
 			this.WindowState = Settings.Current.windowState;
+			startupComplete = true;
 
 			formEventLog.Log("Initialized: " + stopWatch.Elapsed, true);
 			stopWatch.Restart();
@@ -168,6 +191,133 @@ namespace LF2.IDE
 		public FormFrame formFrame;
 		public FormShape formShape;
 		public SolutionExplorer solutionExplorer;
+		FormErrors errorsWindow;
+		FormSpriteAnimator spriteAnimator;
+		FormObjectBrowser objectBrowser;
+		FormMemoryReader memoryReader;
+		bool startupComplete;
+		bool folderOpened;
+
+		MediaPanel CreateMediaPanel()
+		{
+			return media = new MediaPanel();
+		}
+
+		void InitializePortMenus()
+		{
+			fileToolStripMenuItem.DropDownItems.Insert(2, new ToolStripMenuItem("Open Game Folder…", null, (s, e) =>
+			{
+				using (var dialog = new FolderBrowserDialog())
+				{
+					dialog.SelectedPath = Path.GetDirectoryName(Settings.Current.lfPath ?? "") ?? "";
+					if (dialog.ShowDialog(this) == DialogResult.OK) OpenGameFolder(dialog.SelectedPath);
+				}
+			}));
+			var advanced = new ToolStripMenuItem("Advanced");
+			advanced.DropDownItems.Add("Delete Empty Lines", null, (s, e) => { if (ActiveDocument != null) TextTools.DeleteEmptyLines(ActiveDocument.Editor); });
+			advanced.DropDownItems.Add("Trim Trailing Spaces", null, (s, e) => { if (ActiveDocument != null) TextTools.TrimTrailingSpaces(ActiveDocument.Editor); });
+			editToolStripMenuItem.DropDownItems.Add(advanced);
+			var fold = new ToolStripMenuItem("Fold");
+			foreach (int level in new[] { 0, 1, 2 })
+			{
+				int captured = level;
+				string suffix = level == 0 ? "All" : "Level " + level;
+				fold.DropDownItems.Add("Fold " + suffix, null, (s, e) => { if (ActiveDocument != null) ActiveDocument.FoldLevel(captured, true); });
+				fold.DropDownItems.Add("Unfold " + suffix, null, (s, e) => { if (ActiveDocument != null) ActiveDocument.FoldLevel(captured, false); });
+			}
+			viewToolStripMenuItem.DropDownItems.Add(fold);
+			viewToolStripMenuItem.DropDownItems.Add("Show Errors Window", null, (s, e) => {
+				if (errorsWindow == null || errorsWindow.IsDisposed) errorsWindow = new FormErrors(this);
+				ShowFeatureWindow(errorsWindow, WeifenLuo.WinFormsUI.Docking.DockState.DockBottom);
+			});
+			viewToolStripMenuItem.DropDownItems.Add("Show Sprite Animator", null, (s, e) => {
+				if (spriteAnimator == null || spriteAnimator.IsDisposed) spriteAnimator = new FormSpriteAnimator(this);
+				ShowFeatureWindow(spriteAnimator, WeifenLuo.WinFormsUI.Docking.DockState.DockRight);
+			});
+			viewToolStripMenuItem.DropDownItems.Add("Show Object Browser", null, (s, e) => {
+				if (objectBrowser == null || objectBrowser.IsDisposed) objectBrowser = new FormObjectBrowser(this);
+				ShowFeatureWindow(objectBrowser, WeifenLuo.WinFormsUI.Docking.DockState.DockLeft);
+			});
+			var tools = new ToolStripMenuItem("&Tools");
+			tools.DropDownItems.Add("Data Key Finder…", null, (s, e) => FormKeyFinder.ShowFinder(this));
+			tools.DropDownItems.Add("Frame Generator…", null, (s, e) => FormFrameGenerator.ShowGenerator(this));
+			tools.DropDownItems.Add("Multi-line Find && Replace…", null, (s, e) => FormMultiLineFind.ShowFind(this));
+			tools.DropDownItems.Add("Memory Reader", null, (s, e) => {
+				if (memoryReader == null || memoryReader.IsDisposed) memoryReader = new FormMemoryReader(this);
+				ShowFeatureWindow(memoryReader, WeifenLuo.WinFormsUI.Docking.DockState.DockBottom);
+			});
+			tools.DropDownItems.Add(new ToolStripSeparator());
+			ExternalTools.Populate(tools, this);
+			mainMenuStrip.Items.Insert(mainMenuStrip.Items.IndexOf(helpToolStripMenuItem), tools);
+		}
+
+		void ShowFeatureWindow(WeifenLuo.WinFormsUI.Docking.DockContent window, WeifenLuo.WinFormsUI.Docking.DockState state)
+		{
+			if (window.DockPanel == null) window.Show(dockPanel, state);
+			else window.Show();
+			window.Activate();
+		}
+
+		public void OpenGameFolder(string dir)
+		{
+			dir = Path.GetFullPath(dir);
+			string first = null, preferred = null;
+			foreach (string file in Directory.GetFiles(dir))
+			{
+				if (!string.Equals(Path.GetExtension(file), ".exe", StringComparison.OrdinalIgnoreCase)) continue;
+				if (first == null) first = file;
+				if (string.Equals(Path.GetFileName(file), "lf2.exe", StringComparison.OrdinalIgnoreCase)) { preferred = file; break; }
+			}
+			Settings.Current.lfPath = preferred ?? first ?? Path.Combine(dir, "lf2.exe");
+			folderOpened = true;
+			string key = DataKey.DetectForFolder(dir);
+			if (key != null && (key != Settings.Current.encryptionKey || key != Settings.Current.decryptionKey))
+			{
+				Settings.Current.encryptionKey = Settings.Current.decryptionKey = key;
+				var safe = new StringBuilder();
+				foreach (char c in key)
+					if (char.IsControl(c) || char.IsSurrogate(c)) safe.AppendFormat("\\x{0:X2}", (int)c);
+					else safe.Append(c);
+				formEventLog.Log("Detected data key: " + safe, true);
+			}
+			Settings.Current.Save();
+			Text = Program.Title + " - " + new DirectoryInfo(dir).Name;
+			if (startupComplete) solutionExplorer.PopulateTreeView(dir);
+		}
+
+		void IncrementalSearch(object sender, EventArgs e)
+		{
+			if (ActiveDocument == null || toolStripIncrementalSearcher.TextLength == 0) return;
+			var editor = ActiveDocument.Editor;
+			int index = editor.Text.IndexOf(toolStripIncrementalSearcher.Text, StringComparison.CurrentCultureIgnoreCase);
+			if (index < 0) return;
+			editor.Selection.Start = editor.PositionToPlace(index);
+			editor.Selection.End = editor.PositionToPlace(index + toolStripIncrementalSearcher.TextLength);
+			editor.DoSelectionVisible();
+		}
+
+		void NavigateFrame(bool forward)
+		{
+			if (ActiveDocument == null) return;
+			var editor = ActiveDocument.Editor;
+			string text = editor.Text;
+			int pos = editor.SelectionStart;
+			int index = forward ? text.IndexOf("<frame>", Math.Min(pos + 1, text.Length), StringComparison.Ordinal)
+				: (pos > 0 ? text.LastIndexOf("<frame>", pos - 1, StringComparison.Ordinal) : -1);
+			if (index >= 0) editor.Navigate(editor.PositionToPlace(index).iLine);
+		}
+
+		void FoldMatching(string text, bool fold)
+		{
+			if (ActiveDocument == null) return;
+			var editor = ActiveDocument.Editor;
+			for (int i = 0; i < editor.LinesCount; i++)
+			{
+				if (!editor.GetLineText(i).Contains(text) || string.IsNullOrEmpty(editor[i].FoldingStartMarker)) continue;
+				if (fold) editor.CollapseFoldingBlock(i);
+				else editor.ExpandFoldedBlock(i);
+			}
+		}
 		public MediaPanel media;
 		public FormEventLog formEventLog;
 
@@ -198,10 +348,10 @@ namespace LF2.IDE
 					formFrame.drawBox.Image =
 					formShape.drawBox.Image = lastActiveFrame[0];
 				}
-				ActiveDocument.Scintilla.Focus();
+				ActiveDocument.Editor.Focus();
 				this.Activate();
 			}
-			if (File.Exists(Settings.Current.lfPath))
+			if (!string.IsNullOrEmpty(Settings.Current.lfPath) && Directory.Exists(solutionExplorer.DestinationFolder))
 			{
 				solutionExplorer.refreshToolStripButton.DisplayStyle = ToolStripItemDisplayStyle.Text;
 				solutionExplorer.PopulateTreeView(solutionExplorer.DestinationFolder);
@@ -260,16 +410,14 @@ namespace LF2.IDE
 			else if (persistString == sePersist)
 				return solutionExplorer = new SolutionExplorer(this);
 			else if (persistString == mpPersist)
-				return media = new MediaPanel();
+				return Platform.IsWindows ? CreateMediaPanel() : null;
 			else if (persistString == docPersist && Settings.Current.saveDocStates && docLoop < Settings.Current.documentSettings.Count)
 			{
 				DocSet ds = Settings.Current.documentSettings[docLoop++];
 				if (!File.Exists(ds.filePath))
 					return null;
 				DocumentForm doc = Open(ds.filePath, true);
-				doc.Scintilla.LineWrapping.Mode = Settings.Current.lineWrapping ? ScintillaNET.LineWrappingMode.Word : ScintillaNET.LineWrappingMode.None;
-				doc.Scintilla.EndOfLine.IsVisible = Settings.Current.showEndOfLineChars;
-				doc.Scintilla.Whitespace.Mode = Settings.Current.showWhiteSpaces ? ScintillaNET.WhitespaceMode.VisibleAlways : ScintillaNET.WhitespaceMode.Invisible;
+				doc.Editor.WordWrap = Settings.Current.lineWrapping;
 				doc.selectionStart = ds.selectionStart;
 				doc.selectionEnd = ds.selectionEnd;
 				doc.firstVisibleLine = ds.firstVisibleLine;
@@ -307,7 +455,7 @@ namespace LF2.IDE
 			if (!File.Exists(file))
 				newToolStripButton.DropDownItems.Remove(item);
 			else
-				OpenWithText(File.ReadAllText(file, Encoding.Default), Path.GetFileName(file));
+				OpenWithText(File.ReadAllText(file, Platform.TextEncoding), Path.GetFileName(file));
 		}
 
 		private void openRecent(object sender, EventArgs e)
@@ -334,7 +482,7 @@ namespace LF2.IDE
 			toClose = new List<DocumentForm>(16);
 			foreach (DocumentForm doc in dockPanel.Documents)
 			{
-				if (doc.Scintilla.Modified)
+				if (doc.Editor.IsChanged)
 				{
 					// Prompt if not saved
 					string message = String.Format(
@@ -373,37 +521,37 @@ namespace LF2.IDE
 		private void selectalltoolStripButton_Click(object sender, EventArgs e)
 		{
 			if (ActiveDocument != null)
-				ActiveDocument.Scintilla.Selection.SelectAll();
+				ActiveDocument.Editor.SelectAll();
 		}
 
 		private void cutToolStripButton_Click(object sender, EventArgs e)
 		{
 			if (ActiveDocument != null)
-				ActiveDocument.Scintilla.Clipboard.Cut();
+				ActiveDocument.Editor.Cut();
 		}
 
 		private void copyToolStripButton_Click(object sender, EventArgs e)
 		{
 			if (ActiveDocument != null)
-				ActiveDocument.Scintilla.Clipboard.Copy();
+				ActiveDocument.Editor.Copy();
 		}
 
 		private void pasteToolStripButton_Click(object sender, EventArgs e)
 		{
 			if (ActiveDocument != null)
-				ActiveDocument.Scintilla.Selection.Text = Clipboard.GetText(TextDataFormat.Text);
+				ActiveDocument.Editor.InsertText(Clipboard.GetText(TextDataFormat.Text));
 		}
 
 		private void undotoolStripButton_Click(object sender, EventArgs e)
 		{
 			if (ActiveDocument != null)
-				ActiveDocument.Scintilla.UndoRedo.Undo();
+				ActiveDocument.Editor.Undo();
 		}
 
 		private void redotoolStripButton_Click(object sender, EventArgs e)
 		{
 			if (ActiveDocument != null)
-				ActiveDocument.Scintilla.UndoRedo.Redo();
+				ActiveDocument.Editor.Redo();
 		}
 
 		public void addToHistory(string file)
@@ -450,7 +598,7 @@ namespace LF2.IDE
 
 		private void saveToolStripButton_Click(object sender, EventArgs e)
 		{
-			if (ActiveDocument != null && (ActiveDocument.Scintilla.Modified || string.IsNullOrEmpty(ActiveDocument.FilePath)))
+			if (ActiveDocument != null && (ActiveDocument.Editor.IsChanged || string.IsNullOrEmpty(ActiveDocument.FilePath)))
 				ActiveDocument.Save();
 		}
 
@@ -458,8 +606,8 @@ namespace LF2.IDE
 		{
 			if (ActiveDocument != null)
 			{
-				ActiveDocument.Scintilla.Selection.SelectAll();
-				ActiveDocument.Scintilla.Selection.Text = "";
+				ActiveDocument.Editor.SelectAll();
+				ActiveDocument.Editor.InsertText("");
 			}
 		}
 
@@ -473,7 +621,7 @@ namespace LF2.IDE
 		{
 			if (ActiveDocument != null)
 			{
-				ActiveDocument.Scintilla.FindReplace.ShowFind();
+				ActiveDocument.Editor.ShowFindDialog();
 			}
 		}
 
@@ -512,7 +660,7 @@ namespace LF2.IDE
 		{
 			foreach (DocumentForm doc in dockPanel.Documents)
 			{
-				if (doc.Scintilla.Modified)
+				if (doc.Editor.IsChanged)
 					doc.Save();
 			}
 		}
@@ -521,7 +669,7 @@ namespace LF2.IDE
 		{
 			if (ActiveDocument != null)
 			{
-				ActiveDocument.Scintilla.FindReplace.ShowReplace();
+				ActiveDocument.Editor.ShowReplaceDialog();
 			}
 		}
 
@@ -536,13 +684,12 @@ namespace LF2.IDE
 
 		void RestartToolStripMenuItemClick(object sender, EventArgs e)
 		{
-			foreach (Process prc in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(Settings.Current.lfPath)))
+			foreach (Process prc in Platform.FindProcesses(Settings.Current.lfPath))
 			{
 				if (!prc.HasExited)
 				{
 					prc.CloseMainWindow();
-					ProcessStartInfo psi = new ProcessStartInfo(Settings.Current.lfPath);
-					psi.WorkingDirectory = Path.GetDirectoryName(Settings.Current.lfPath);
+					ProcessStartInfo psi = Platform.ExeStartInfo(Settings.Current.lfPath);
 					Process.Start(psi);
 				}
 			}
@@ -559,6 +706,9 @@ namespace LF2.IDE
 
 		[DllImport("user32.dll", CharSet = CharSet.Auto, CallingConvention = CallingConvention.Winapi)]
 		public static extern IntPtr SendMessage(IntPtr hWnd, WM Msg, IntPtr wParam, IntPtr lParam);
+		[DllImport("user32.dll")]
+		private static extern bool SetForegroundWindow(IntPtr window);
+
 
 		[StructLayout(LayoutKind.Sequential)]
 		public struct RECT
@@ -592,6 +742,7 @@ namespace LF2.IDE
 		/// </summary>
 		bool SendGameStartMsg(IntPtr window)
 		{
+			if (!Platform.IsWindows) return false;
 			RECT rect = new RECT();
 			if(GetWindowRect(window, ref rect) == FALSE)
 				return false;
@@ -617,13 +768,14 @@ namespace LF2.IDE
 
 		public Process ExecuteLF2(bool startTheGame)
 		{
-			ProcessStartInfo psi = new ProcessStartInfo();
-			psi.FileName = Settings.Current.lfPath;
-			psi.WorkingDirectory = Path.GetDirectoryName(Settings.Current.lfPath);
+			ProcessStartInfo psi = Platform.ExeStartInfo(Settings.Current.lfPath);
 			Process lfp = Process.Start(psi);
-			Thread.Sleep(500);
-			SetWindowPos(lfp.MainWindowHandle, IntPtr.Zero, (Screen.PrimaryScreen.WorkingArea.Width - 800) / 2, (Screen.PrimaryScreen.WorkingArea.Height - 578) / 2, 800, 578, 0);
-			if (startTheGame)
+			if (Platform.IsWindows)
+			{
+				Thread.Sleep(500);
+				SetWindowPos(lfp.MainWindowHandle, IntPtr.Zero, (Screen.PrimaryScreen.WorkingArea.Width - 800) / 2, (Screen.PrimaryScreen.WorkingArea.Height - 578) / 2, 800, 578, 0);
+			}
+			if (Platform.IsWindows && startTheGame)
 			{
 				Thread.Sleep(500);
 				SendGameStartMsg(lfp.MainWindowHandle);
@@ -635,7 +787,7 @@ namespace LF2.IDE
 
 		void CloseAllToolStripMenuItemClick(object sender, EventArgs e)
 		{
-			foreach (Process prc in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(Settings.Current.lfPath)))
+			foreach (Process prc in Platform.FindProcesses(Settings.Current.lfPath))
 			{
 				if (!prc.HasExited)
 					prc.Kill();
@@ -655,7 +807,7 @@ namespace LF2.IDE
 			closed = true;
 			foreach (DocumentForm doc in toClose)
 			{
-				doc.Scintilla.Modified = false;
+				doc.Editor.IsChanged = false;
 				doc.Close();
 			}
 			if(Settings.Current.saveDocStates)
@@ -670,9 +822,9 @@ namespace LF2.IDE
 						new DocSet()
 						{
 							filePath = df.FilePath,
-							firstVisibleLine = df.Scintilla.Lines.VisibleLines[0].Number,
-							selectionStart = df.Scintilla.Selection.Start,
-							selectionEnd = df.Scintilla.Selection.End,
+							firstVisibleLine = df.Editor.VisibleRange.Start.iLine,
+							selectionStart = df.Editor.SelectionStart,
+							selectionEnd = df.Editor.SelectionStart + df.Editor.SelectionLength,
 						});
 				}
 			}
@@ -709,18 +861,7 @@ namespace LF2.IDE
 				fidl.FreshLoad();
 			if (ActiveDocument != null)
 			{
-				if (ActiveDocument.Scintilla.LineWrapping.Mode == ScintillaNET.LineWrappingMode.None)
-				{
-					textWrapToolStripButton.Checked = false;
-				}
-				else
-				{
-					textWrapToolStripButton.Checked = true;
-				}
-				showAllCharsToolStripButton.Checked = ActiveDocument.Scintilla.EndOfLine.IsVisible || ActiveDocument.Scintilla.Whitespace.Mode == ScintillaNET.WhitespaceMode.VisibleAlways;
-				UpdateNavigationControls();
-
-				toolStripIncrementalSearcher.Scintilla = ActiveDocument.Scintilla;
+				textWrapToolStripButton.Checked = ActiveDocument.Editor.WordWrap;
 				if (ActiveDocument.frames != null)
 				{
 					lastActiveDoc = ActiveDocument;
@@ -739,99 +880,47 @@ namespace LF2.IDE
 				ActiveDocument.SyncToDesign(true);
 			}
 			else
-				toolStripIncrementalSearcher.Scintilla = null;
+				toolStripIncrementalSearcher.Text = "";
 		}
 
 		public void UpdateNavigationControls()
 		{
-			if (ActiveDocument == null)
-			{
-				toolStripButton_NavigateBack.Enabled = false;
-				toolStripButton_NavigateForward.Enabled = false;
-				toolStripDropDownButton_NavigateList.DropDownItems.Clear();
-				toolStripDropDownButton_NavigateList.Enabled = false;
-				return;
-			}
-			toolStripButton_NavigateBack.Enabled = ActiveDocument.Scintilla.DocumentNavigation.CanNavigateBackward;
-			toolStripButton_NavigateForward.Enabled = ActiveDocument.Scintilla.DocumentNavigation.CanNavigateForward;
+			// The replacement editor has no document navigation history.
+			toolStripButton_NavigateBack.Enabled = false;
+			toolStripButton_NavigateForward.Enabled = false;
 			toolStripDropDownButton_NavigateList.DropDownItems.Clear();
-			foreach (var nav in ActiveDocument.Scintilla.DocumentNavigation.ForewardStack)
-			{
-				var tsi = new ToolStripMenuItem(string.Format("Line {0,4}:   ", nav.StartingLine.Number + 1) + nav.StartingLine.Text.Trim());
-				tsi.Click += tsi_Click;
-				tsi.Tag = nav;
-				toolStripDropDownButton_NavigateList.DropDownItems.Add(tsi);
-			}
-			ToolStripMenuItem item = new ToolStripMenuItem(string.Format("Line {0,4}:   ", ActiveDocument.Scintilla.Lines.Current.Number + 1) + ActiveDocument.Scintilla.Lines.Current.Text.Trim());
-			item.Checked = true;
-			toolStripDropDownButton_NavigateList.DropDownItems.Add(item);
-			
-			int insertPlace = toolStripDropDownButton_NavigateList.DropDownItems.Count;
-			foreach (var nav in ActiveDocument.Scintilla.DocumentNavigation.BackwardStack)
-			{
-				var tsi = new ToolStripMenuItem(string.Format("Line {0,4}:   ", nav.StartingLine.Number + 1) + nav.StartingLine.Text.Trim());
-				tsi.Click += tsi_Click;
-				tsi.Tag = nav;
-				toolStripDropDownButton_NavigateList.DropDownItems.Insert(insertPlace, tsi);
-			}
+			toolStripDropDownButton_NavigateList.Enabled = false;
 		}
 
-		void tsi_Click(object sender, EventArgs e)
+		void NavigateToMatch(string pattern)
 		{
-			ToolStripMenuItem item = (ToolStripMenuItem)sender;
-			var nav = (ScintillaNET.NavigationPont)item.Tag;
-			nav.Select();
+			if (ActiveDocument == null) return;
+			Match match = Regex.Match(ActiveDocument.Editor.Text, pattern, RegexOptions.Multiline);
+			if (match.Success)
+			{
+				ActiveDocument.Editor.Navigate(ActiveDocument.Editor.PositionToPlace(match.Index).iLine);
+				ActiveDocument.Activate();
+				ActiveDocument.Editor.Focus();
+			}
 		}
 
 		void ToolStripLabelIndex_Click(object sender, EventArgs e)
 		{
-			if (ActiveDocument != null)
-			{
-				if (frameIndexToolStripTextBox.Text.Trim() == "") return;
-				ScintillaNET.Range rng = ActiveDocument.Scintilla.FindReplace.Find(new Regex("(<frame>) (" + frameIndexToolStripTextBox.Text + " )"));
-				if (rng != null)
-				{
-					ActiveDocument.Scintilla.GoTo.Position(rng.Start);
-					int bug = ActiveDocument.Scintilla.Lines.FirstVisibleIndex - ActiveDocument.Scintilla.Lines.VisibleLines[0].Number;
-					ActiveDocument.Scintilla.Lines.FirstVisibleIndex = ActiveDocument.Scintilla.Lines.Current.Number - ActiveDocument.Scintilla.Lines.VisibleCount / 3 + bug;
-					ActiveDocument.Scintilla.Lines.Current.EnsureVisible();
-					ActiveDocument.Activate();
-					ActiveDocument.Scintilla.Focus();
-				}
-			}
+			if (frameIndexToolStripTextBox.Text.Trim().Length != 0)
+				NavigateToMatch(@"<frame>\s+" + Regex.Escape(frameIndexToolStripTextBox.Text.Trim()) + @"\s");
 		}
 
 		void ToolStripLabelCaption_Click(object sender, EventArgs e)
 		{
-			if (ActiveDocument != null)
-			{
-				if (frameCaptionToolStripComboBox.Text.Trim() == "") return;
-				ScintillaNET.Range rng = ActiveDocument.Scintilla.FindReplace.Find(new Regex(@"(<frame>) ([1-3][0-9][0-9]|[1-9][0-9]|[0-9]) (" + frameCaptionToolStripComboBox.Text + ")(\n)")) == null ? ActiveDocument.Scintilla.FindReplace.Find(new Regex(@"(<frame>) ([1-3][0-9][0-9]|[1-9][0-9]|[0-9]) (" + frameCaptionToolStripComboBox.Text + ")(\r\n)")) : ActiveDocument.Scintilla.FindReplace.Find(new Regex(@"(<frame>) ([1-3][0-9][0-9]|[1-9][0-9]|[0-9]) (" + frameCaptionToolStripComboBox.Text + ")(\n)"));
-				if (rng != null)
-				{
-					ActiveDocument.Scintilla.GoTo.Position(rng.Start);
-					int bug = ActiveDocument.Scintilla.Lines.FirstVisibleIndex - ActiveDocument.Scintilla.Lines.VisibleLines[0].Number;
-					ActiveDocument.Scintilla.Lines.FirstVisibleIndex = ActiveDocument.Scintilla.Lines.Current.Number - ActiveDocument.Scintilla.Lines.VisibleCount / 3 + bug;
-					ActiveDocument.Scintilla.Lines.Current.EnsureVisible();
-					ActiveDocument.Activate();
-					ActiveDocument.Scintilla.Focus();
-				}
-			}
+			if (frameCaptionToolStripComboBox.Text.Trim().Length != 0)
+				NavigateToMatch(@"<frame>\s+\d+\s+" + Regex.Escape(frameCaptionToolStripComboBox.Text.Trim()) + @"\s*$");
 		}
 
 		void ToolStripButtonLine_Click(object sender, EventArgs e)
 		{
-			if (ActiveDocument != null)
-			{
-				int o;
-				if (!int.TryParse(lineNumberToolStripTextBox.Text, out o)) return;
-				ActiveDocument.Scintilla.GoTo.Line(o - 1);
-				int bug = ActiveDocument.Scintilla.Lines.FirstVisibleIndex - ActiveDocument.Scintilla.Lines.VisibleLines[0].Number;
-				ActiveDocument.Scintilla.Lines.FirstVisibleIndex = ActiveDocument.Scintilla.Lines.Current.Number - ActiveDocument.Scintilla.Lines.VisibleCount / 3 + bug;
-				ActiveDocument.Scintilla.Lines.Current.EnsureVisible();
-				ActiveDocument.Activate();
-				ActiveDocument.Scintilla.Focus();
-			}
+			int line;
+			if (ActiveDocument != null && int.TryParse(lineNumberToolStripTextBox.Text, out line))
+				ActiveDocument.Editor.Navigate(Math.Max(0, Math.Min(line - 1, ActiveDocument.Editor.LinesCount - 1)));
 		}
 
 		void LanguageSettingsToolStripMenuItemClick(object sender, EventArgs e)
@@ -855,9 +944,9 @@ namespace LF2.IDE
 		{
 			if (ActiveDocument != null)
 			{
-				Match wew = dummyRgx.Match(ActiveDocument.Scintilla.Text);
+				Match wew = dummyRgx.Match(ActiveDocument.Editor.Text);
 				if (wew.Success)
-					ActiveDocument.Scintilla.Selection.Text = wew.Value;
+					ActiveDocument.Editor.InsertText(wew.Value);
 			}
 		}
 
@@ -869,10 +958,10 @@ namespace LF2.IDE
 			if (!File.Exists(fns))
 			{
 				MessageBox.Show("File '" + fns + "' not exists in target path", Program.Title);
-				ActiveDocument.Scintilla.Modified = true;
+				ActiveDocument.Editor.IsChanged = true;
 				UpdateHistoryList();
 			}
-			else if (ActiveDocument.Scintilla.Modified)
+			else if (ActiveDocument.Editor.IsChanged)
 			{
 				string message = String.Format(
 					"The data in the {0} file has changed.{1}{2}Do you want to discard the changes?",
@@ -893,20 +982,8 @@ namespace LF2.IDE
 		void Reopen(DocumentForm doc)
 		{
 			string file = doc.FilePath;
-			if (file.EndsWith(".dat"))
-			{
-				doc.Scintilla.Text = "";
-				doc.Scintilla.AppendText(LF2DataUtils.Decrypt(file));
-				doc.Scintilla.UndoRedo.EmptyUndoBuffer();
-				doc.Scintilla.Modified = false;
-			}
-			else
-			{
-				doc.Scintilla.Text = "";
-				doc.Scintilla.AppendText(File.ReadAllText(file, Encoding.Default));
-				doc.Scintilla.UndoRedo.EmptyUndoBuffer();
-				doc.Scintilla.Modified = false;
-			}
+			doc.SetTextFromFile(file.EndsWith(".dat", StringComparison.OrdinalIgnoreCase)
+				? LF2DataUtils.Decrypt(file) : File.ReadAllText(file, Platform.TextEncoding));
 			doc.SetLanguage();
 		}
 
@@ -924,12 +1001,12 @@ namespace LF2.IDE
 		void SelectAllToolStripMenuItemClick(object sender, EventArgs e)
 		{
 			if (ActiveDocument != null)
-				ActiveDocument.Scintilla.Selection.SelectAll();
+				ActiveDocument.Editor.SelectAll();
 		}
 
 		void SearchToolStripMenuItemClick(object sender, EventArgs e)
 		{
-			Process.Start(Program.webPage);
+			Platform.Open(Program.webPage);
 		}
 
 		void AlgorithmToolStripMenuItemClick(object sender, EventArgs e)
@@ -939,13 +1016,13 @@ namespace LF2.IDE
 		void ToolStripButtonzinClick(object sender, EventArgs e)
 		{
 			if (ActiveDocument != null)
-				ActiveDocument.Scintilla.Zoom = Math.Min(Math.Max(-7, ActiveDocument.Scintilla.Zoom + 1), 20);
+				ActiveDocument.Editor.Zoom = Math.Min(500, ActiveDocument.Editor.Zoom + 10);
 		}
 
 		void ToolStripButtonzoutClick(object sender, EventArgs e)
 		{
 			if (ActiveDocument != null)
-				ActiveDocument.Scintilla.Zoom = Math.Min(Math.Max(-7, ActiveDocument.Scintilla.Zoom - 1), 20);
+				ActiveDocument.Editor.Zoom = Math.Max(20, ActiveDocument.Editor.Zoom - 10);
 		}
 
 		void ToolStripButtonwwClick(object sender, EventArgs e)
@@ -953,50 +1030,29 @@ namespace LF2.IDE
 			Settings.Current.lineWrapping = textWrapToolStripButton.Checked;
 			foreach (DocumentForm doc in dockPanel.Documents)
 			{
-				doc.Scintilla.LineWrapping.Mode = Settings.Current.lineWrapping ? ScintillaNET.LineWrappingMode.Word : ScintillaNET.LineWrappingMode.None;
+				doc.Editor.WordWrap = Settings.Current.lineWrapping;
 			}
 		}
 
 		void ToolStripButtoneolClick(object sender, EventArgs e)
 		{
-			Settings.Current.showEndOfLineChars = Settings.Current.showWhiteSpaces = showAllCharsToolStripButton.Checked;
-			foreach (DocumentForm doc in dockPanel.Documents)
-			{
-				doc.Scintilla.EndOfLine.IsVisible = Settings.Current.showEndOfLineChars;
-				doc.Scintilla.Whitespace.Mode = Settings.Current.showWhiteSpaces ? ScintillaNET.WhitespaceMode.VisibleAlways : ScintillaNET.WhitespaceMode.Invisible;
-			}
+			// The replacement editor does not display end-of-line or whitespace markers.
+			showAllCharsToolStripButton.Checked = false;
 		}
 
 		void ToolStripButtonFClick(object sender, EventArgs e)
 		{
-			if (ActiveDocument != null)
-			{
-				foreach (ScintillaNET.Line linear in ActiveDocument.Scintilla.Lines)
-				{
-					if (linear.IsFoldPoint && linear.FoldExpanded && linear.Text.Contains(toolStripComboBoxF.Text))
-					{
-						linear.ToggleFoldExpanded();
-					}
-				}
-			}
+			FoldMatching(toolStripComboBoxF.Text, true);
 		}
 
 		void ToolStripButtonUFClick(object sender, EventArgs e)
 		{
-			if (ActiveDocument != null)
-			{
-				foreach (ScintillaNET.Line linear in ActiveDocument.Scintilla.Lines)
-				{
-					if (linear.IsFoldPoint && !linear.FoldExpanded && linear.Text.Contains(toolStripComboBoxUF.Text))
-					{
-						linear.ToggleFoldExpanded();
-					}
-				}
-			}
+			FoldMatching(toolStripComboBoxUF.Text, false);
 		}
 
 		void ShowMediaWindowToolStripMenuItemClick(object sender, EventArgs e)
 		{
+			if (!Platform.IsWindows || media == null) return;
 			try
 			{
 				if ((media.DockState & (WeifenLuo.WinFormsUI.Docking.DockState.DockBottomAutoHide | WeifenLuo.WinFormsUI.Docking.DockState.DockLeftAutoHide | WeifenLuo.WinFormsUI.Docking.DockState.DockRightAutoHide | WeifenLuo.WinFormsUI.Docking.DockState.DockTopAutoHide)) != 0)
@@ -1066,26 +1122,26 @@ namespace LF2.IDE
 		void ResetCurrentZoomToolStripMenuItemClick(object sender, EventArgs e)
 		{
 			if (ActiveDocument != null)
-				ActiveDocument.Scintilla.Zoom = 0;
+				ActiveDocument.Editor.Zoom = 100;
 		}
 
 		void ResetAllDocumentsZoomingToolStripMenuItemClick(object sender, EventArgs e)
 		{
 			foreach (DocumentForm doc in dockPanel.Documents)
 			{
-				doc.Scintilla.Zoom = 0;
+				doc.Editor.Zoom = 100;
 			}
 		}
 
 		void DownloadPageToolStripMenuItemClick(object sender, EventArgs e)
 		{
-			Process.Start(Program.downloadPage);
+			Platform.Open(Program.downloadPage);
 		}
 
 		void ToolStripButtonExportToHtmlClick(object sender, EventArgs e)
 		{
 			if (ActiveDocument != null)
-				OpenWithText(ActiveDocument.Scintilla.ExportHtml(), Path.GetFileNameWithoutExtension(ActiveDocument.TabText.TrimEnd(' ', '*')) + ".html");
+				OpenWithText(new FastColoredTextBoxNS.ExportToHTML().GetHtml(ActiveDocument.Editor), Path.GetFileNameWithoutExtension(ActiveDocument.TabText.TrimEnd(' ', '*')) + ".html");
 		}
 
 		void RefreshAllToolStripMenuItemClick(object sender, EventArgs e)
@@ -1257,7 +1313,7 @@ namespace LF2.IDE
 				string path = folderBrowserDialog_Sprite.SelectedPath;
 				try
 				{
-					var fs = Directory.EnumerateFiles(path, "*.bmp", Directory.Exists(path + "\\" + "sys") ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly);
+					var fs = Directory.EnumerateFiles(path, "*.bmp", Directory.Exists(Path.Combine(path, "sys")) ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly);
 					foreach (string sprite in fs)
 					{
 						//using (MemoryStream ms = new MemoryStream())
@@ -1276,7 +1332,7 @@ namespace LF2.IDE
 						string fileName = Path.GetFileNameWithoutExtension(sprite),
 							fileDir = Path.GetDirectoryName(sprite),
 							file = Path.GetFileName(sprite),
-							mirrored = fileDir + "\\" + fileName + "_mirror.bmp";
+							mirrored = Path.Combine(fileDir, fileName + "_mirror.bmp");
 
 						if (file.EndsWith("_mirror.bmp") || File.Exists(mirrored) || file.EndsWith("_s.bmp") || file.EndsWith("_f.bmp") || file == "s.bmp" || file == "face.bmp")
 							continue;
@@ -1318,9 +1374,7 @@ namespace LF2.IDE
 			if (file.EndsWith(".dat"))
 			{
 				doc = new DocumentForm(this);
-				doc.Scintilla.AppendText(LF2DataUtils.Decrypt(file));
-				doc.Scintilla.UndoRedo.EmptyUndoBuffer();
-				doc.Scintilla.Modified = false;
+				doc.SetTextFromFile(LF2DataUtils.Decrypt(file));
 				doc.TabText = Path.GetFileName(file);
 				doc.FilePath = file;
 				doc.Show(dockPanel);
@@ -1330,9 +1384,7 @@ namespace LF2.IDE
 				doc = new DocumentForm(this);
 				doc.FilePath = file;
 				doc.TabText = Path.GetFileName(file);
-				doc.Scintilla.AppendText(File.ReadAllText(file, Encoding.Default));
-				doc.Scintilla.UndoRedo.EmptyUndoBuffer();
-				doc.Scintilla.Modified = false;
+				doc.SetTextFromFile(File.ReadAllText(file, Platform.TextEncoding));
 				doc.Show(dockPanel);
 			}
 			addToHistory(file);
@@ -1352,13 +1404,15 @@ namespace LF2.IDE
 		public bool OpenWithImage(string file, bool updateHistory)
 		{
 			bool arg = false;
+			if (Directory.Exists(file))
+			{
+				OpenGameFolder(file);
+				return false;
+			}
 			if (file.EndsWith(".dat"))
 			{
 				DocumentForm doc = new DocumentForm(this);
-				doc.Scintilla.Encoding = Encoding.ASCII;
-				doc.Scintilla.AppendText(LF2DataUtils.Decrypt(file));
-				doc.Scintilla.UndoRedo.EmptyUndoBuffer();
-				doc.Scintilla.Modified = false;
+				doc.SetTextFromFile(LF2DataUtils.Decrypt(file));
 				doc.TabText = Path.GetFileName(file);
 				doc.FilePath = file;
 				doc.Show(dockPanel);
@@ -1382,10 +1436,7 @@ namespace LF2.IDE
 			else
 			{
 				DocumentForm doc = new DocumentForm(this);
-				doc.Scintilla.Encoding = Encoding.UTF8;
-				doc.Scintilla.AppendText(File.ReadAllText(file, Encoding.UTF8));
-				doc.Scintilla.UndoRedo.EmptyUndoBuffer();
-				doc.Scintilla.Modified = false;
+				doc.SetTextFromFile(File.ReadAllText(file, Platform.TextEncoding));
 				doc.TabText = Path.GetFileName(file);
 				doc.FilePath = file;
 				doc.Show(dockPanel);
@@ -1398,12 +1449,17 @@ namespace LF2.IDE
 		public void OpenWithImage(IEnumerable<string> files, bool skipFirst)
 		{
 			bool arg = false;
-			IEnumerator<string> filer = files.GetEnumerator();
-
-			if (skipFirst) filer.MoveNext();
-
-			while (filer.MoveNext())
-				arg |= OpenWithImage(filer.Current, false);
+			bool first = true;
+			foreach (string file in files)
+			{
+				if (first && skipFirst && string.Equals(file, Application.ExecutablePath, StringComparison.OrdinalIgnoreCase))
+				{
+					first = false;
+					continue;
+				}
+				first = false;
+				arg |= OpenWithImage(file, false);
+			}
 
 			UpdateHistoryList();
 
@@ -1420,11 +1476,8 @@ namespace LF2.IDE
 			if (!string.IsNullOrEmpty(title))
 				doc.TabText = title;
 
-			doc.Scintilla.AppendText(text);
-			doc.Scintilla.UndoRedo.EmptyUndoBuffer();
-
-			if (!string.IsNullOrEmpty(text))
-				doc.Scintilla.Modified = modified;
+			if (!string.IsNullOrEmpty(text)) doc.SetTextFromFile(text);
+			doc.Editor.IsChanged = modified;
 
 			doc.Show(dockPanel);
 		}
@@ -1696,7 +1749,7 @@ namespace LF2.IDE
 
 		private void MainForm_Shown(object sender, EventArgs e)
 		{
-			if (!Settings.Current.ignoreIncorrectLfPath && !File.Exists(Settings.Current.lfPath))
+			if (!folderOpened && !Settings.Current.ignoreIncorrectLfPath && !File.Exists(Settings.Current.lfPath))
 			{
 				if (MessageBox.Show("Seems like LF2 path is not set or incorrect.\r\n" + Program.Title + "'s cool features rely on this setting, " + 
 									"do you want to set it now?\r\nYou can do this anytime later on settings window.", 
@@ -1794,33 +1847,13 @@ namespace LF2.IDE
 			}
 			else if (e.Modifiers == Keys.Control && e.KeyCode == Keys.B)
 			{
-				if (ActiveDocument != null)
-				{
-					var range = ActiveDocument.Scintilla.FindReplace.Find(ActiveDocument.Scintilla.CurrentPos + 1, ActiveDocument.Scintilla.TextLength, "<frame>", ScintillaNET.SearchFlags.MatchCase);
-					if (range != null)
-					{
-						ActiveDocument.Scintilla.CurrentPos = range.Start;
-						int bug = ActiveDocument.Scintilla.Lines.FirstVisibleIndex - ActiveDocument.Scintilla.Lines.VisibleLines[0].Number;
-						ActiveDocument.Scintilla.Lines.FirstVisibleIndex = ActiveDocument.Scintilla.Lines.Current.Number - ActiveDocument.Scintilla.Lines.VisibleCount / 3 + bug;
-						ActiveDocument.Scintilla.Lines.Current.EnsureVisible();
-					}
-				}
+				NavigateFrame(true);
 				e.Handled = true;
 				e.SuppressKeyPress = true;
 			}
 			else if (e.Modifiers == (Keys.Control | Keys.Shift) && e.KeyCode == Keys.B)
 			{
-				if (ActiveDocument != null)
-				{
-					var range = ActiveDocument.Scintilla.FindReplace.Find(0, ActiveDocument.Scintilla.CurrentPos, new Regex("<frame>"), true);
-					if (range != null)
-					{
-						ActiveDocument.Scintilla.CurrentPos = range.Start;
-						int bug = ActiveDocument.Scintilla.Lines.FirstVisibleIndex - ActiveDocument.Scintilla.Lines.VisibleLines[0].Number;
-						ActiveDocument.Scintilla.Lines.FirstVisibleIndex = ActiveDocument.Scintilla.Lines.Current.Number - ActiveDocument.Scintilla.Lines.VisibleCount / 3 + bug;
-						ActiveDocument.Scintilla.Lines.Current.EnsureVisible();
-					}
-				}
+				NavigateFrame(false);
 				e.Handled = true;
 				e.SuppressKeyPress = true;
 			}
@@ -1828,18 +1861,10 @@ namespace LF2.IDE
 			{
 				if (ActiveDocument != null)
 				{
+					string text = ActiveDocument.Editor.Selection.Text.Trim();
 					ushort index;
-					string xstr = ActiveDocument.Scintilla.Selection.Text.Trim();
-					if (ActiveDocument.Scintilla.Selection.Length == 0 && !ushort.TryParse(xstr, out index))
-						return;
-					ScintillaNET.Range rng = ActiveDocument.Scintilla.FindReplace.Find(new Regex("(<frame>) (" + xstr + " )"));
-					if (rng != null)
-					{
-						ActiveDocument.Scintilla.GoTo.Position(rng.Start);
-						ActiveDocument.Scintilla.Lines.Current.EnsureVisible();
-						int bug = ActiveDocument.Scintilla.Lines.FirstVisibleIndex - ActiveDocument.Scintilla.Lines.VisibleLines[0].Number;
-						ActiveDocument.Scintilla.Lines.FirstVisibleIndex = ActiveDocument.Scintilla.Lines.Current.Number - ActiveDocument.Scintilla.Lines.VisibleCount / 3 + bug;
-					}
+					if (ushort.TryParse(text, out index))
+						NavigateToMatch(@"<frame>\s+" + index + @"\s");
 				}
 				e.Handled = true;
 				e.SuppressKeyPress = true;
@@ -1931,15 +1956,7 @@ namespace LF2.IDE
 			int objType = -1;
 			int bgId = -1;
 
-			Process[] procs = Process.GetProcessesByName("lf2");
-			Process lfp = null;
-			if(Settings.Current.lfPath != null)
-				foreach (Process proc in procs)
-					if(string.Equals(proc.MainModule.FileName, Settings.Current.lfPath, StringComparison.InvariantCultureIgnoreCase))
-					{
-						lfp = proc;
-						break;
-					}
+			Process lfp = Platform.FindProcesses(Settings.Current.lfPath).Find(p => !p.HasExited);
 			if (lfp == null)
 				return;
 
@@ -1957,7 +1974,7 @@ namespace LF2.IDE
 				default:
 					return;
 			}
-			string lfDir = Path.GetDirectoryName(Settings.Current.lfPath), dataTxtFile = lfDir + "\\data\\data.txt";
+			string lfDir = Path.GetDirectoryName(Settings.Current.lfPath), dataTxtFile = Platform.ResolvePath(lfDir, @"data\data.txt");
 			if (!File.Exists(dataTxtFile))
 			{
 				MessageBox.Show("'data.txt' could not found. Make sure you set 'LF2 Path' correct in the settings menu.", Program.Title);
@@ -1967,7 +1984,7 @@ namespace LF2.IDE
 			DateTime modification = File.GetLastWriteTime(dataTxtFile);
 			if (modification > FormIDL.dataTxtLastModification)
 			{
-				dataTxtFile = File.ReadAllText(dataTxtFile);
+				dataTxtFile = File.ReadAllText(dataTxtFile, Platform.TextEncoding);
 				if (IDL.ReadDataTxt(dataTxtFile, out FormIDL.dataTxt.objects, out FormIDL.dataTxt.backgrounds, this.Handle) != 0)
 					return;
 
@@ -1976,7 +1993,7 @@ namespace LF2.IDE
 
 			for (int i = 0; i < FormIDL.dataTxt.objects.Length; i++)
 			{
-				if (doc.FilePath != null ? doc.FilePath.EndsWith(FormIDL.dataTxt.objects[i].file, StringComparison.InvariantCultureIgnoreCase) : doc.TabText.EndsWith(FormIDL.dataTxt.objects[i].file, StringComparison.InvariantCultureIgnoreCase))
+				if (doc.FilePath != null ? string.Equals(doc.FilePath, Platform.ResolvePath(lfDir, FormIDL.dataTxt.objects[i].file), StringComparison.OrdinalIgnoreCase) : doc.TabText.EndsWith(Path.GetFileName(FormIDL.dataTxt.objects[i].file.Replace('\\', Path.DirectorySeparatorChar)), StringComparison.OrdinalIgnoreCase))
 				{
 					objId = i;
 					objType = (int)FormIDL.dataTxt.objects[i].type;
@@ -1987,7 +2004,7 @@ namespace LF2.IDE
 
 			for (int i = 0; i < FormIDL.dataTxt.backgrounds.Length; i++)
 			{
-				if (doc.FilePath != null ? doc.FilePath.EndsWith(FormIDL.dataTxt.backgrounds[i].file, StringComparison.InvariantCultureIgnoreCase) : doc.TabText.EndsWith(FormIDL.dataTxt.backgrounds[i].file, StringComparison.InvariantCultureIgnoreCase))
+				if (doc.FilePath != null ? string.Equals(doc.FilePath, Platform.ResolvePath(lfDir, FormIDL.dataTxt.backgrounds[i].file), StringComparison.OrdinalIgnoreCase) : doc.TabText.EndsWith(Path.GetFileName(FormIDL.dataTxt.backgrounds[i].file.Replace('\\', Path.DirectorySeparatorChar)), StringComparison.OrdinalIgnoreCase))
 				{
 					bgId = i;
 					dataType = 2;
@@ -2000,7 +2017,7 @@ namespace LF2.IDE
 			int result = int.MinValue;
 			try
 			{
-				string dat = ActiveDocument.Scintilla.Text;
+				string dat = ActiveDocument.Editor.Text;
 
 				Process p = lfp;
 				if (p.HasExited)
@@ -2015,17 +2032,10 @@ namespace LF2.IDE
 					(ObjectType)objType,
 					this.Handle,
 					null);
-				if (result == 0)
+				if (Platform.IsWindows && result == 0)
 				{
-					FormIDL.SetForegroundWindow(new HandleRef(p, p.MainWindowHandle));
+					SetForegroundWindow(p.MainWindowHandle);
 				}
-			}
-			catch (DllNotFoundException)
-			{
-				MessageBox.Show("'IDL.dll' could not be found, it's required to make instant data loading possible.\r\n" +
-					"If you think it supposed to come with the download please contact me (the developer) at LFE Forums (Help/Web...) or report a bug at GitHub:\r\n" +
-					Program.githubPage,
-					Program.Title, MessageBoxButtons.OK, MessageBoxIcon.Error);
 			}
 			catch (ApplicationException ex)
 			{
@@ -2041,7 +2051,7 @@ namespace LF2.IDE
 		{
 			try
 			{
-				string dataTxtPath = Path.GetDirectoryName(Settings.Current.lfPath) + "\\data\\data.txt";
+				string dataTxtPath = Platform.ResolvePath(Path.GetDirectoryName(Settings.Current.lfPath), @"data\data.txt");
 				if (File.Exists(dataTxtPath))
 				{
 					DocumentForm ready = null;
@@ -2065,20 +2075,12 @@ namespace LF2.IDE
 
 		private void toolStripButton_NavigateBack_Click(object sender, EventArgs e)
 		{
-			if (ActiveDocument != null)
-			{
-				ActiveDocument.Scintilla.DocumentNavigation.NavigateBackward();
-				//UpdateNavigationControls();
-			}
+			// The replacement editor has no document navigation history.
 		}
 
 		private void toolStripButton_NavigateForward_Click(object sender, EventArgs e)
 		{
-			if (ActiveDocument != null)
-			{
-				ActiveDocument.Scintilla.DocumentNavigation.NavigateForward();
-				//UpdateNavigationControls();
-			}
+			// The replacement editor has no document navigation history.
 		}
 	}
 }

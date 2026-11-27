@@ -138,25 +138,26 @@
   <assembly alias="System.Drawing" name="System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" />
   <data name="$this.Icon" type="System.Drawing.Icon, System.Drawing" mimetype="application/x-microsoft.net.object.bytearray.base64">
     <value>
-        AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAIAAAAAAAQAQAAAAAAAAAAAAAAAAAAAAA
-        AAD//////////////////////////////////////////4CAgP+AgID/gICA/4CAgP+AgID/gICA/4CA
-        gP+AgID///////////////////////////////////////////+AgID/gICA/4CAgP+AgID/gICA/4CA
-        gP+AgID/gICA////////////////////////////////////////////gICA/4CAgP+AgID/gICA/4CA
-        gP+AgID/gICA/4CAgP///////////////////////////////////////////4CAgP+AgID/gICA/4CA
-        gP+AgID/gICA/4CAgP+AgID///////////////////////////////////////////+AgID/gICA/4CA
-        gP+AgID/gICA/4CAgP+AgID/gICA////////////////////////////////////////////gICA/4CA
-        gP+AgID/gICA/4CAgP+AgID/gICA/4CAgP///////////////////////////////////////////4CA
-        gP+AgID/gICA/4CAgP+AgID/gICA/4CAgP+AgID/////////////////////////////////////////
-        //+AgID/gICA/4CAgP+AgID/gICA/4CAgP+AgID/gICA/4CAgP+AgID/gICA/4CAgP+AgID/gICA/4CA
-        gP+AgID///////////////////////////////////////////+AgID/gICA/4CAgP+AgID/gICA/4CA
-        gP+AgID/gICA////////////////////////////////////////////gICA/4CAgP+AgID/gICA/4CA
-        gP+AgID/gICA/4CAgP///////////////////////////////////////////4CAgP+AgID/gICA/4CA
-        gP+AgID/gICA/4CAgP+AgID///////////////////////////////////////////+AgID/gICA/4CA
-        gP+AgID/gICA/4CAgP+AgID/gICA////////////////////////////////////////////gICA/4CA
-        gP+AgID/gICA/4CAgP+AgID/gICA/4CAgP///////////////////////////////////////////4CA
-        gP+AgID/gICA/4CAgP+AgID/gICA/4CAgP+AgID/////////////////////////////////////////
-        //+AgID/gICA/4CAgP+AgID/gICA/4CAgP+AgID/gICA////////////////////////////////////
-        ////////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+        AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAIAAAAAAAQAQAAAAAAAAAAAAAAAAA
+        AAAAAAD//////////////////////////////////////////4CAgP+AgID/gICA/4CAgP+AgID/
+        gICA/4CAgP+AgID///////////////////////////////////////////+AgID/gICA/4CAgP+A
+        gID/gICA/4CAgP+AgID/gICA////////////////////////////////////////////gICA/4CA
+        gP+AgID/gICA/4CAgP+AgID/gICA/4CAgP//////////////////////////////////////////
+        /4CAgP+AgID/gICA/4CAgP+AgID/gICA/4CAgP+AgID/////////////////////////////////
+        //////////+AgID/gICA/4CAgP+AgID/gICA/4CAgP+AgID/gICA////////////////////////
+        ////////////////////gICA/4CAgP+AgID/gICA/4CAgP+AgID/gICA/4CAgP//////////////
+        /////////////////////////////4CAgP+AgID/gICA/4CAgP+AgID/gICA/4CAgP+AgID/////
+        //////////////////////////////////////+AgID/gICA/4CAgP+AgID/gICA/4CAgP+AgID/
+        gICA/4CAgP+AgID/gICA/4CAgP+AgID/gICA/4CAgP+AgID/////////////////////////////
+        //////////////+AgID/gICA/4CAgP+AgID/gICA/4CAgP+AgID/gICA////////////////////
+        ////////////////////////gICA/4CAgP+AgID/gICA/4CAgP+AgID/gICA/4CAgP//////////
+        /////////////////////////////////4CAgP+AgID/gICA/4CAgP+AgID/gICA/4CAgP+AgID/
+        //////////////////////////////////////////+AgID/gICA/4CAgP+AgID/gICA/4CAgP+A
+        gID/gICA////////////////////////////////////////////gICA/4CAgP+AgID/gICA/4CA
+        gP+AgID/gICA/4CAgP///////////////////////////////////////////4CAgP+AgID/gICA
+        /4CAgP+AgID/gICA/4CAgP+AgID///////////////////////////////////////////+AgID/
+        gICA/4CAgP+AgID/gICA/4CAgP+AgID/gICA////////////////////////////////////////
+        ////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
         AAAAAAAAAAAAAA==
 </value>
   </data>
