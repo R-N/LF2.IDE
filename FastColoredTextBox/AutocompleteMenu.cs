@@ -661,9 +661,7 @@ namespace FastColoredTextBoxNS
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
-            ProcessKey(keyData, Keys.None);
-            
-            return base.ProcessCmdKey(ref msg, keyData);
+            return ProcessKey(keyData, Keys.None) || base.ProcessCmdKey(ref msg, keyData);
         }
 
         private bool ProcessKey(Keys keyData, Keys keyModifiers)

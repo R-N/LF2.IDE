@@ -11,10 +11,16 @@ namespace LF2.IDE
 {
 	public partial class FormSettings : Form
 	{
+		private readonly TextBox runCommand = new TextBox();
 		public FormSettings(bool forceCorrectLfPath = false)
 		{
 			this.forceCorrectLfPath = forceCorrectLfPath;
 			InitializeComponent();
+			groupBox_Debugger.Controls.Add(new Label { Text = "Game command (empty = default; $(GameDir), $(GameExe)):", AutoSize = true, Location = new Point(6, 47) });
+			runCommand.Location = new Point(9, 66);
+			runCommand.Size = new Size(742, 20);
+			runCommand.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+			groupBox_Debugger.Controls.Add(runCommand);
 		}
 
 		bool forceCorrectLfPath = false;
@@ -24,6 +30,7 @@ namespace LF2.IDE
 			textBox_EncryptionKey.Text = Settings.Current.encryptionKey;
 			textBox_DecryptionKey.Text = Settings.Current.decryptionKey;
 			textBox_Path.Text = (string.IsNullOrEmpty(Settings.Current.lfPath) ? "lf2.exe" : Settings.Current.lfPath);
+			runCommand.Text = Settings.Current.runCommand;
 			radioButton_External.Checked = !(radioButton_Default.Checked = string.IsNullOrEmpty(Settings.Current.dataUtil));
 			checkBox_AutoComplete.Checked = Settings.Current.autoComplete;
 			checkBox_SaveDocStates.Checked = Settings.Current.saveDocStates;
@@ -82,6 +89,7 @@ namespace LF2.IDE
 				Settings.Current.encryptionKey = textBox_EncryptionKey.Text;
 				Settings.Current.decryptionKey = textBox_DecryptionKey.Text;
 				Settings.Current.lfPath = (string.IsNullOrWhiteSpace(textBox_Path.Text) ? "lf2.exe" : textBox_Path.Text);
+				Settings.Current.runCommand = runCommand.Text.Trim();
 				if (File.Exists(Settings.Current.lfPath))
 					Settings.Current.ignoreIncorrectLfPath = false;
 				Settings.Current.dataUtil = (radioButton_Default.Checked || string.IsNullOrEmpty(comboBox_DataUtils.Text)) ? null : comboBox_DataUtils.Text;

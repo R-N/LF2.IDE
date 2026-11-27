@@ -16,7 +16,7 @@ using System.Xml;
 
 namespace LF2.IDE
 {
-	public sealed partial class DocumentForm : DockContent
+	public sealed partial class DocumentForm : DockContent, IMessageFilter
 	{
 		private string _filePath;
 		private bool _issaved;
@@ -64,19 +64,135 @@ namespace LF2.IDE
 		};
 		private static readonly string[] foldingNames = { "bmp_begin", "frame", "stage", "phase", "weapon_strength_list", "object", "bdy", "itr", "bpoint", "cpoint", "wpoint", "opoint" };
 		private static readonly string[] foldingEnds = { "bmp_end", "frame_end", "stage_end", "phase_end", "weapon_strength_list_end", "object_end", "bdy_end", "itr_end", "bpoint_end", "cpoint_end", "wpoint_end", "opoint_end" };
-		private sealed class NamedSnippet : SnippetAutocompleteItem
+		private sealed class NamedSnippet : AutocompleteItem
 		{
 			private readonly string shortcut;
+			private readonly DocumentForm document;
+			private readonly List<int[]> fields = new List<int[]>();
+			private int end;
 
-			public NamedSnippet(string shortcut, string text) : base(text)
+			public NamedSnippet(DocumentForm document, string shortcut, string text)
 			{
+				this.document = document;
 				this.shortcut = shortcut;
 				MenuText = shortcut + " (snippet)";
+				var result = new StringBuilder();
+				int last = 0;
+				string source = text.Replace("\r\n", "\n").Replace("\r", "\n");
+				foreach (Match match in Regex.Matches(source, @"\$([^$]+)\$"))
+				{
+					result.Append(source.Substring(last, match.Index - last).Replace("\n", Environment.NewLine));
+					string name = match.Groups[1].Value;
+					if (name == "end") end = result.Length;
+					else
+					{
+						fields.Add(new[] { result.Length, result.Length + name.Length });
+						result.Append(name);
+					}
+					last = match.Index + match.Length;
+				}
+				result.Append(source.Substring(last).Replace("\n", Environment.NewLine));
+				Text = result.ToString();
+				if (!source.Contains("$end$")) end = Text.Length;
 			}
 
 			public override CompareResult Compare(string fragment)
 			{
 				return shortcut.StartsWith(fragment, StringComparison.OrdinalIgnoreCase) ? CompareResult.Visible : CompareResult.Hidden;
+			}
+
+			public override void OnSelected(AutocompleteMenu menu, SelectedEventArgs e)
+			{
+				document.StartSnippet(e.Tb.PlaceToPosition(menu.Fragment.Start), fields, end);
+				e.Tb.BeginInvoke((Action)(() =>
+				{
+					e.Tb.Focus();
+					if (document.snippetFields != null) document.SelectSnippetField();
+				}));
+			}
+		}
+
+		private List<int[]> snippetFields;
+		private int snippetIndex, snippetEnd;
+		private string snippetText;
+
+		private void StartSnippet(int start, List<int[]> fields, int end)
+		{
+			snippetFields = fields.Select(f => new[] { start + f[0], start + f[1] }).ToList();
+			snippetEnd = start + end;
+			snippetIndex = 0;
+			snippetText = Editor.Text;
+			SelectSnippetField();
+		}
+
+		public bool PreFilterMessage(ref Message message)
+		{
+			if (message.Msg != 0x100 || snippetFields == null || mainForm.ActiveDocument != this ||
+				!Editor.Focused || Form.ActiveForm != mainForm) return false;
+			Keys key = (Keys)message.WParam.ToInt32() | Control.ModifierKeys;
+			if (key == Keys.Escape)
+				snippetFields = null;
+			else if (key == Keys.Tab || key == (Keys.Shift | Keys.Tab))
+			{
+				snippetIndex = Math.Max(0, snippetIndex + (key == Keys.Tab ? 1 : -1));
+				SelectSnippetField();
+			}
+			else return false;
+			return true;
+		}
+
+
+
+		private void SelectSnippetField()
+		{
+			if (snippetIndex >= snippetFields.Count)
+			{
+				Editor.Selection.Start = Editor.PositionToPlace(snippetEnd);
+				snippetFields = null;
+				return;
+			}
+			int[] field = snippetFields[snippetIndex];
+			Editor.Selection.Start = Editor.PositionToPlace(field[0]);
+			Editor.Selection.End = Editor.PositionToPlace(field[1]);
+			Editor.DoSelectionVisible();
+		}
+
+		private void UpdateSnippetText()
+		{
+			if (snippetFields == null) return;
+			string current = Editor.Text;
+			int prefix = 0;
+			while (prefix < current.Length && prefix < snippetText.Length && current[prefix] == snippetText[prefix]) prefix++;
+			int oldEnd = snippetText.Length, newEnd = current.Length;
+			while (oldEnd > prefix && newEnd > prefix && snippetText[oldEnd - 1] == current[newEnd - 1]) { oldEnd--; newEnd--; }
+			int[] field = snippetFields[snippetIndex];
+			if (prefix < field[0] || oldEnd > field[1]) { snippetFields = null; return; }
+			int delta = newEnd - oldEnd;
+			field[1] += delta;
+			for (int i = snippetIndex + 1; i < snippetFields.Count; i++)
+			{
+				snippetFields[i][0] += delta;
+				snippetFields[i][1] += delta;
+			}
+			if (snippetEnd >= oldEnd) snippetEnd += delta;
+			snippetText = current;
+		}
+
+		private void PaintWhitespace(object sender, PaintLineEventArgs e)
+		{
+			if (!Settings.Current.showWhiteSpaces && !Settings.Current.showEndOfLineChars) return;
+			var line = Editor[e.LineIndex];
+			using (var brush = new SolidBrush(Color.FromArgb(130, Editor.ForeColor)))
+			using (var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+			{
+				for (int i = 0; i <= line.Count; i++)
+				{
+					string marker = i == line.Count ? (Settings.Current.showEndOfLineChars ? "¶" : null)
+						: !Settings.Current.showWhiteSpaces ? null : line[i].c == ' ' ? "·" : line[i].c == '\t' ? "→" : null;
+					if (marker == null) continue;
+					Point p = Editor.PlaceToPoint(new Place(i, e.LineIndex));
+					e.Graphics.DrawString(marker, Editor.Font, brush, new RectangleF(p.X, p.Y, Editor.CharWidth, Editor.CharHeight), format);
+				}
 			}
 		}
 
@@ -240,8 +356,12 @@ namespace LF2.IDE
 			syncTimer.Elapsed += syncTimer_Elapsed;
 			mainForm = main;
 			InitializeComponent();
+			Application.AddMessageFilter(this);
+			FormClosed += (sender, e) => Application.RemoveMessageFilter(this);
 			autocomplete = new AutocompleteMenu(Editor);
 			autocomplete.Opening += (sender, e) => e.Cancel = !Settings.Current.autoComplete || !auto;
+			Editor.PreviewKeyDown += (sender, e) => { if (snippetFields != null && e.KeyCode == Keys.Escape) e.IsInputKey = true; };
+			Editor.PaintLine += PaintWhitespace;
 		}
 
 		void DocumentFormActivated(object sender, EventArgs e)
@@ -446,9 +566,7 @@ namespace LF2.IDE
 							if (word.Length != 0) items.Add(new AutocompleteItem(word));
 					foreach (XmlNode snippet in node.SelectNodes("Snippets/Snippet"))
 					{
-						string text = Regex.Replace(snippet.InnerText, @"\$([^$]+)\$", m => m.Groups[1].Value == "end" ? "^" : m.Groups[1].Value);
-						if (!text.Contains("^")) text += "^";
-						items.Add(new NamedSnippet(snippet.Attributes["Shortcut"].Value, text));
+						items.Add(new NamedSnippet(this, snippet.Attributes["Shortcut"].Value, snippet.InnerText));
 					}
 					autocomplete.Items.SetAutocompleteItems(items);
 				}
@@ -505,6 +623,7 @@ namespace LF2.IDE
 
 		void ScintillaTextChanged(object sender, TextChangedEventArgs e)
 		{
+			UpdateSnippetText();
 			AddOrRemoveAsteric();
 			if (Monitor.TryEnter(syncLock))
 			{
@@ -538,10 +657,31 @@ namespace LF2.IDE
 			if (!justEdited)
 				SyncToDesign(auto: true);
 			mainForm.UpdateNavigationControls();
+			if (snippetFields != null && IsHandleCreated)
+				BeginInvoke((Action)(() =>
+				{
+					if (snippetFields == null) return;
+					int start = Editor.PlaceToPosition(Editor.Selection.Start), end = Editor.PlaceToPosition(Editor.Selection.End);
+					int[] field = snippetFields[snippetIndex];
+					if (Math.Min(start, end) < field[0] || Math.Max(start, end) > field[1]) snippetFields = null;
+				}));
 		}
 
 		private void scintilla_KeyDown(object sender, KeyEventArgs e)
 		{
+			if (snippetFields != null && e.KeyCode == Keys.Escape)
+			{
+				snippetFields = null;
+				e.Handled = e.SuppressKeyPress = true;
+				return;
+			}
+			if (snippetFields != null && e.KeyCode == Keys.Tab && (e.Modifiers == Keys.None || e.Modifiers == Keys.Shift))
+			{
+				snippetIndex = Math.Max(0, snippetIndex + (e.Shift ? -1 : 1));
+				SelectSnippetField();
+				e.Handled = e.SuppressKeyPress = true;
+				return;
+			}
 			if (e.KeyCode == Keys.Z && e.Modifiers == (Keys.Control | Keys.Shift))
 			{
 				Editor.Redo();

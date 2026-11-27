@@ -30,7 +30,7 @@ Several of these come from [LFStudio](https://github.com/wirwl/lfs).
 
 Linux
 -----
-LF2 IDE runs natively on Linux with Mono; LF2 itself runs under Wine.
+LF2 IDE runs natively on Linux with Mono. The original LF2 runs under Wine; OpenLF2 can run natively without Wine.
 
 ```sh
 sudo pacman -S mono                      # or your distro's mono / mono-complete package
@@ -39,6 +39,7 @@ mono "LF2.IDE/bin/x86/Release/LF2 IDE.exe" ~/games/LF2   # opens the game folder
 ```
 
 - Games are started with `wine`; set `WINEPREFIX` before launching LF2 IDE to use a specific prefix.
+- In Settings, set **Game command** to e.g. `/path/to/openlf2 --game "$(GameDir)" --reload` to start [OpenLF2](https://github.com/R-N/OpenLF2) instead; with `--reload` it picks up saved `.dat` changes live, no Wine or memory access needed. `$(GameExe)` is also available; leave the command empty for the default.
 - Media files open in the desktop's default player instead of the integrated one.
 - Instant Data Loader and Memory Reader write/read the game's memory through `/proc/<pid>/mem`. Wine starts the game outside LF2 IDE's process tree, so this needs `sudo sysctl kernel.yama.ptrace_scope=0` on distros that default to 1.
 - Settings live in `~/.config/LF2.IDE`.

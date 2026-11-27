@@ -21,6 +21,8 @@ namespace LF2.IDE
 		string[] args;
 		public static Stopwatch stopWatch;
 
+
+
 		public MainForm(string[] args)
 		{
 			Application.ThreadException += new ThreadExceptionEventHandler(this.UnhandledError);
@@ -380,6 +382,7 @@ namespace LF2.IDE
 				Settings.Current.Reload();
 				checkUpdatesAutoToolStripMenuItem.Checked = Settings.Current.checkUpdatesAuto;
 				textWrapToolStripButton.Checked = Settings.Current.lineWrapping;
+				showAllCharsToolStripButton.Checked = Settings.Current.showWhiteSpaces && Settings.Current.showEndOfLineChars;
 				UpdateHistoryList();
 			}
 			catch (Exception ex)
@@ -684,15 +687,8 @@ namespace LF2.IDE
 
 		void RestartToolStripMenuItemClick(object sender, EventArgs e)
 		{
-			foreach (Process prc in Platform.FindProcesses(Settings.Current.lfPath))
-			{
-				if (!prc.HasExited)
-				{
-					prc.CloseMainWindow();
-					ProcessStartInfo psi = Platform.ExeStartInfo(Settings.Current.lfPath);
-					Process.Start(psi);
-				}
-			}
+			CloseGameProcesses();
+			ExecuteLF2(false);
 		}
 
 		[DllImport("user32.dll", CharSet = CharSet.Auto, CallingConvention = CallingConvention.Winapi)]
@@ -768,8 +764,10 @@ namespace LF2.IDE
 
 		public Process ExecuteLF2(bool startTheGame)
 		{
-			ProcessStartInfo psi = Platform.ExeStartInfo(Settings.Current.lfPath);
+			ProcessStartInfo psi = Platform.GameStartInfo();
 			Process lfp = Process.Start(psi);
+			lfProc = lfp;
+			startedGames.Add(lfp);
 			if (Platform.IsWindows)
 			{
 				Thread.Sleep(500);
@@ -784,14 +782,20 @@ namespace LF2.IDE
 		}
 
 		public static Process lfProc = null;
+		private static readonly List<Process> startedGames = new List<Process>();
+
+		private void CloseGameProcesses()
+		{
+			foreach (Process process in startedGames)
+				try { if (!process.HasExited) process.Kill(); } catch (InvalidOperationException) { }
+			startedGames.Clear();
+			foreach (Process process in Platform.FindProcesses(Settings.Current.lfPath))
+				try { if (!process.HasExited) process.Kill(); } catch (InvalidOperationException) { }
+		}
 
 		void CloseAllToolStripMenuItemClick(object sender, EventArgs e)
 		{
-			foreach (Process prc in Platform.FindProcesses(Settings.Current.lfPath))
-			{
-				if (!prc.HasExited)
-					prc.Kill();
-			}
+			CloseGameProcesses();
 		}
 
 		void CloseToolStripMenuItemClick(object sender, EventArgs e)
@@ -881,13 +885,13 @@ namespace LF2.IDE
 			}
 			else
 				toolStripIncrementalSearcher.Text = "";
+			UpdateNavigationControls();
 		}
 
 		public void UpdateNavigationControls()
 		{
-			// The replacement editor has no document navigation history.
-			toolStripButton_NavigateBack.Enabled = false;
-			toolStripButton_NavigateForward.Enabled = false;
+			toolStripButton_NavigateBack.Enabled = ActiveDocument != null;
+			toolStripButton_NavigateForward.Enabled = ActiveDocument != null;
 			toolStripDropDownButton_NavigateList.DropDownItems.Clear();
 			toolStripDropDownButton_NavigateList.Enabled = false;
 		}
@@ -1036,8 +1040,9 @@ namespace LF2.IDE
 
 		void ToolStripButtoneolClick(object sender, EventArgs e)
 		{
-			// The replacement editor does not display end-of-line or whitespace markers.
-			showAllCharsToolStripButton.Checked = false;
+			Settings.Current.showWhiteSpaces = showAllCharsToolStripButton.Checked;
+			Settings.Current.showEndOfLineChars = showAllCharsToolStripButton.Checked;
+			foreach (DocumentForm doc in dockPanel.Documents) doc.Editor.Invalidate();
 		}
 
 		void ToolStripButtonFClick(object sender, EventArgs e)
@@ -2075,12 +2080,12 @@ namespace LF2.IDE
 
 		private void toolStripButton_NavigateBack_Click(object sender, EventArgs e)
 		{
-			// The replacement editor has no document navigation history.
+			if (ActiveDocument != null) ActiveDocument.Editor.NavigateBackward();
 		}
 
 		private void toolStripButton_NavigateForward_Click(object sender, EventArgs e)
 		{
-			// The replacement editor has no document navigation history.
+			if (ActiveDocument != null) ActiveDocument.Editor.NavigateForward();
 		}
 	}
 }

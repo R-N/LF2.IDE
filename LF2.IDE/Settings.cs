@@ -18,6 +18,7 @@ namespace LF2.IDE
 			SettingsPath = Path.Combine(SettingsDir, "settings-v2.xml");
 
 		public string lfPath = "lf2.exe",
+			runCommand = "",
 			encryptionKey = "odBearBecauseHeIsVeryGoodSiuHungIsAGo",
 			decryptionKey = "odBearBecauseHeIsVeryGoodSiuHungIsAGo",
 			dataUtil = null;

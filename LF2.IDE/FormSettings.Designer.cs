@@ -218,7 +218,7 @@
 			this.groupBox_Debugger.Controls.Add(this.button_BlaBlaBlah);
 			this.groupBox_Debugger.Location = new System.Drawing.Point(12, 393);
 			this.groupBox_Debugger.Name = "groupBox_Debugger";
-			this.groupBox_Debugger.Size = new System.Drawing.Size(760, 50);
+			this.groupBox_Debugger.Size = new System.Drawing.Size(760, 100);
 			this.groupBox_Debugger.TabIndex = 5;
 			this.groupBox_Debugger.TabStop = false;
 			this.groupBox_Debugger.Text = "Debugger";
@@ -226,7 +226,7 @@
 			// button_OK
 			// 
 			this.button_OK.Anchor = System.Windows.Forms.AnchorStyles.Bottom;
-			this.button_OK.Location = new System.Drawing.Point(314, 452);
+			this.button_OK.Location = new System.Drawing.Point(314, 502);
 			this.button_OK.Name = "button_OK";
 			this.button_OK.Size = new System.Drawing.Size(75, 23);
 			this.button_OK.TabIndex = 60;
@@ -239,7 +239,7 @@
 			// 
 			this.button_Cancel.Anchor = System.Windows.Forms.AnchorStyles.Bottom;
 			this.button_Cancel.DialogResult = System.Windows.Forms.DialogResult.Cancel;
-			this.button_Cancel.Location = new System.Drawing.Point(395, 452);
+			this.button_Cancel.Location = new System.Drawing.Point(395, 502);
 			this.button_Cancel.Name = "button_Cancel";
 			this.button_Cancel.Size = new System.Drawing.Size(75, 23);
 			this.button_Cancel.TabIndex = 65;
@@ -373,7 +373,7 @@
 			this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
 			this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
 			this.CancelButton = this.button_Cancel;
-			this.ClientSize = new System.Drawing.Size(784, 484);
+			this.ClientSize = new System.Drawing.Size(784, 534);
 			this.Controls.Add(this.groupBox_EditorSettings);
 			this.Controls.Add(this.groupBox_PluginManager);
 			this.Controls.Add(this.button_Cancel);

@@ -73,6 +73,36 @@ namespace LF2.IDE
 			return psi;
 		}
 
+		/// <summary>Starts the configured game command, or LF2 through the platform default.</summary>
+		public static ProcessStartInfo GameStartInfo()
+		{
+			string exe = Path.GetFullPath(Settings.Current.lfPath);
+			string command = (Settings.Current.runCommand ?? "").Trim();
+			if (command.Length == 0) return ExeStartInfo(exe);
+			command = command.Replace("$(GameDir)", Path.GetDirectoryName(exe)).Replace("$(GameExe)", exe);
+			string file;
+			int end;
+			if (command[0] == '"' || command[0] == '\'')
+			{
+				char quote = command[0];
+				end = command.IndexOf(quote, 1);
+				if (end < 0) throw new ArgumentException("Unclosed quote in game command.");
+				file = command.Substring(1, end - 1);
+				end++;
+			}
+			else
+			{
+				end = 0;
+				while (end < command.Length && !char.IsWhiteSpace(command[end])) end++;
+				file = command.Substring(0, end);
+			}
+			return new ProcessStartInfo(file, command.Substring(end).TrimStart())
+			{
+				UseShellExecute = false,
+				WorkingDirectory = Path.GetDirectoryName(exe)
+			};
+		}
+
 		/// <summary>Running processes of the given executable. Under Wine the process name is the .exe file name.</summary>
 		public static List<Process> FindProcesses(string exePath)
 		{
